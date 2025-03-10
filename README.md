@@ -165,3 +165,64 @@ pip install "numpy<2.0.0"
    test_images/
        dog.jpg (your test image)
 ```
+
+## Key Benefits
+- Fast Setup: Just add reference images for your classes
+- Flexibility: Easily add or remove classes without retraining
+- Few-Shot Learning: Works with as little as one example per class
+- Dynamic Updates: Can update the index data on the fly
+
+## Dynamic Updates
+
+One of the powerful features of CbR is the ability to dynamically update the model's index data without retraining. This means you can:
+
+1. **Add New Classes**:
+```python
+# Existing model with cat/dog classes
+model = ClassificationByRetrieval()
+
+# Add a new 'bird' class
+new_images = load_images('bird_images/')  # Load new class images
+new_embeddings = model.get_embedding(new_images)
+new_labels = ['bird'] * len(new_images)
+
+# Combine with existing index data
+combined_embeddings = torch.cat([model.index_embeddings, new_embeddings])
+combined_labels = model.class_labels + new_labels
+
+# Update model's index data
+model.add_index_data(combined_embeddings, combined_labels)
+```
+
+2. **Update Existing Classes**:
+```python
+# Update examples for an existing class
+new_cat_images = load_images('new_cat_images/')
+new_cat_embeddings = model.get_embedding(new_cat_images)
+
+# Replace or append to existing cat embeddings
+model.update_class_embeddings('cat', new_cat_embeddings)
+```
+
+3. **Remove Classes or Examples**:
+```python
+# Remove a class
+model.remove_class('bird')
+
+# Or remove specific examples
+model.remove_examples(indices=[0, 1, 2])  # Remove first three examples
+```
+
+These updates can be performed at any time without:
+- Retraining the model
+- Disrupting the model's operation
+- Affecting other classes
+- Requiring a model restart
+
+This makes CbR ideal for:
+- Active learning systems
+- Continuously evolving datasets
+- Interactive applications where classes need to be added/removed frequently
+- Production systems that need to be updated without downtime
+
+With CbR, all updates are immediate and don't require retraining, making it much more flexible for real-world applications.

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
 from torchvision.models import resnet18, ResNet18_Weights
 
 class ClassificationByRetrieval(nn.Module):
@@ -122,3 +122,113 @@ class ClassificationByRetrieval(nn.Module):
         if self.normalize_embeddings:
             embeddings = F.normalize(embeddings, p=2, dim=-1)
         return embeddings 
+
+    def update_class_embeddings(self, class_name: str, new_embeddings: torch.Tensor, append: bool = False):
+        """
+        Update embeddings for a specific class.
+        
+        Args:
+            class_name: Name of the class to update
+            new_embeddings: New embeddings for the class
+            append: If True, append to existing embeddings; if False, replace them
+        """
+        if class_name not in self.classes_to_idx:
+            raise ValueError(f"Class '{class_name}' not found in index")
+            
+        class_idx = self.classes_to_idx[class_name]
+        class_mask = (self.class_labels == class_idx)
+        
+        if append:
+            # Append new embeddings to existing ones
+            combined_embeddings = torch.cat([self.index_embeddings, new_embeddings])
+            combined_labels = torch.cat([
+                self.class_labels,
+                torch.full((len(new_embeddings),), class_idx, dtype=torch.long)
+            ])
+        else:
+            # Replace existing embeddings
+            non_class_mask = ~class_mask
+            combined_embeddings = torch.cat([
+                self.index_embeddings[non_class_mask],
+                new_embeddings
+            ])
+            combined_labels = torch.cat([
+                self.class_labels[non_class_mask],
+                torch.full((len(new_embeddings),), class_idx, dtype=torch.long)
+            ])
+            
+        # Normalize if needed
+        if self.normalize_embeddings:
+            combined_embeddings = F.normalize(combined_embeddings, p=2, dim=-1)
+            
+        # Update buffers
+        self.register_buffer('index_embeddings', combined_embeddings)
+        self.register_buffer('class_labels', combined_labels)
+
+    def remove_class(self, class_name: str):
+        """
+        Remove a class and its embeddings from the index.
+        
+        Args:
+            class_name: Name of the class to remove
+        """
+        if class_name not in self.classes_to_idx:
+            raise ValueError(f"Class '{class_name}' not found in index")
+            
+        class_idx = self.classes_to_idx[class_name]
+        keep_mask = (self.class_labels != class_idx)
+        
+        # Update embeddings and labels
+        self.register_buffer('index_embeddings', self.index_embeddings[keep_mask])
+        self.register_buffer('class_labels', self.class_labels[keep_mask])
+        
+        # Update class mappings
+        del self.classes_to_idx[class_name]
+        del self.idx_to_classes[class_idx]
+        
+        # Remap remaining class indices
+        new_idx = 0
+        new_classes_to_idx = {}
+        new_idx_to_classes = {}
+        
+        for old_class, old_idx in self.classes_to_idx.items():
+            new_classes_to_idx[old_class] = new_idx
+            new_idx_to_classes[new_idx] = old_class
+            # Update labels to new indices
+            self.class_labels[self.class_labels == old_idx] = new_idx
+            new_idx += 1
+            
+        self.classes_to_idx = new_classes_to_idx
+        self.idx_to_classes = new_idx_to_classes
+        self.num_classes = len(self.classes_to_idx)
+
+    def remove_examples(self, indices: Union[List[int], torch.Tensor]):
+        """
+        Remove specific examples from the index.
+        
+        Args:
+            indices: List or tensor of indices to remove
+        """
+        if isinstance(indices, list):
+            indices = torch.tensor(indices)
+            
+        # Create mask for keeping examples
+        keep_mask = torch.ones(len(self.index_embeddings), dtype=torch.bool)
+        keep_mask[indices] = False
+        
+        # Update embeddings and labels
+        self.register_buffer('index_embeddings', self.index_embeddings[keep_mask])
+        self.register_buffer('class_labels', self.class_labels[keep_mask])
+        
+        # Check if any classes are now empty
+        unique_labels = torch.unique(self.class_labels)
+        empty_classes = []
+        
+        for idx in range(self.num_classes):
+            if idx not in unique_labels:
+                class_name = self.idx_to_classes[idx]
+                empty_classes.append(class_name)
+                
+        # Remove empty classes
+        for class_name in empty_classes:
+            self.remove_class(class_name) 
