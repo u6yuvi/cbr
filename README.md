@@ -226,3 +226,140 @@ This makes CbR ideal for:
 - Production systems that need to be updated without downtime
 
 With CbR, all updates are immediate and don't require retraining, making it much more flexible for real-world applications.
+
+
+#Check model info
+```bash
+curl http://localhost:8000/model/info
+curl -v -X POST \
+  -F "files=@index_images/dog/dog1.jpg" \
+  http://localhost:8000/class/add/dog
+```
+
+## FastAPI Service
+
+The model is exposed through a REST API built with FastAPI. The service provides endpoints for model management, classification, and dynamic updates.
+
+### Running the Service
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Start the FastAPI server
+uvicorn api.main:app --reload
+```
+
+The API will be available at `http://localhost:8000`. Interactive documentation is available at `http://localhost:8000/docs`.
+
+### API Endpoints
+
+#### 1. Model Information
+```bash
+# Get model status and information
+curl http://localhost:8000/model/info
+```
+Response:
+```json
+{
+    "num_classes": 2,
+    "num_examples": 4,
+    "available_classes": ["cat", "dog"],
+    "examples_per_class": {
+        "cat": 2,
+        "dog": 2
+    }
+}
+```
+
+#### 2. Adding Classes
+```bash
+# Add a new class with example images
+curl -X POST \
+  -F "files=@path/to/cat1.jpg" \
+  -F "files=@path/to/cat2.jpg" \
+  http://localhost:8000/class/add/cat
+```
+Response:
+```json
+{
+    "status": "success",
+    "message": "Added class 'cat' with 2 examples",
+    "num_classes": 1,
+    "available_classes": ["cat"]
+}
+```
+
+#### 3. Updating Classes
+```bash
+# Add more examples to existing class
+curl -X POST \
+  -F "files=@path/to/cat3.jpg" \
+  -F "append=true" \
+  http://localhost:8000/class/update/cat
+
+# Replace examples of existing class
+curl -X POST \
+  -F "files=@path/to/new_cat.jpg" \
+  -F "append=false" \
+  http://localhost:8000/class/update/cat
+```
+Response:
+```json
+{
+    "status": "success",
+    "message": "Added 1 examples for class 'cat'",
+    "num_examples": 3
+}
+```
+
+#### 4. Making Predictions
+```bash
+# Classify an image
+curl -X POST \
+  -F "file=@path/to/test_image.jpg" \
+  http://localhost:8000/predict
+```
+Response:
+```json
+{
+    "predicted_class": "cat",
+    "confidence": 0.85,
+    "class_probabilities": {
+        "cat": 0.85,
+        "dog": 0.15
+    }
+}
+```
+
+#### 5. Removing Classes
+```bash
+# Remove an entire class
+curl -X DELETE http://localhost:8000/class/cat
+```
+Response:
+```json
+{
+    "status": "success",
+    "message": "Removed class 'cat'",
+    "num_classes": 1,
+    "available_classes": ["dog"]
+}
+```
+
+#### 6. Removing Examples
+```bash
+# Remove specific examples by their indices
+curl -X DELETE \
+  -H "Content-Type: application/json" \
+  -d '[0, 2]' \
+  http://localhost:8000/examples
+```
+Response:
+```json
+{
+    "status": "success",
+    "message": "Removed 2 examples",
+    "num_examples": 2
+}
+```

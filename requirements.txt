@@ -1,4 +1,8 @@
 torch>=2.0.0
 torchvision>=0.15.0
 Pillow>=9.0.0
-numpy<2.0.0 
+numpy<2.0.0  # Required for compatibility
+fastapi>=0.68.0
+uvicorn>=0.15.0
+python-multipart>=0.0.5  # For handling file uploads
+pydantic>=1.8.0 

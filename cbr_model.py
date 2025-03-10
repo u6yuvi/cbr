@@ -89,12 +89,21 @@ class ClassificationByRetrieval(nn.Module):
             embeddings: Tensor of shape (num_samples, embedding_dim)
             labels: List of class labels corresponding to the embeddings
         """
-        # Create class mapping if not exists
+        # Create or update class mapping
         unique_labels = sorted(set(labels))
-        if not self.classes_to_idx:
+        
+        # If this is not the first time adding data, merge with existing classes
+        if self.classes_to_idx:
+            existing_classes = set(self.classes_to_idx.keys())
+            all_classes = sorted(existing_classes.union(set(unique_labels)))
+            self.classes_to_idx = {label: idx for idx, label in enumerate(all_classes)}
+        else:
+            # First time adding data
             self.classes_to_idx = {label: idx for idx, label in enumerate(unique_labels)}
-            self.idx_to_classes = {idx: label for label, idx in self.classes_to_idx.items()}
-            self.num_classes = len(unique_labels)
+        
+        # Update reverse mapping
+        self.idx_to_classes = {idx: label for label, idx in self.classes_to_idx.items()}
+        self.num_classes = len(self.classes_to_idx)
         
         # Convert labels to indices
         label_indices = torch.tensor([self.classes_to_idx[label] for label in labels])
