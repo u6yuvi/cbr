@@ -17,6 +17,15 @@ class ModelService:
         logger.info("Initializing ModelService...")
         self.model = ClassificationByRetrieval()
         self.model.eval()
+        
+        # Initialize empty state if no data exists
+        if self.model.index_embeddings is None:
+            self.model.index_embeddings = torch.tensor([])
+            self.model.class_labels = torch.tensor([])
+            self.model.classes_to_idx = {}
+            self.model.idx_to_classes = {}
+            self.model.num_classes = 0
+        
         self.transform = transforms.Compose([
             transforms.Resize(256),
             transforms.CenterCrop(224),
@@ -24,6 +33,26 @@ class ModelService:
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
         logger.info("ModelService initialized successfully")
+        
+    def update_index_data(self, data: dict):
+        """Update model's index data from saved data."""
+        try:
+            # Convert embeddings and labels to tensors
+            embeddings = torch.tensor(data['embeddings'])
+            labels = torch.tensor(data['labels'])
+            
+            # Update model attributes
+            self.model.index_embeddings = embeddings
+            self.model.class_labels = labels
+            self.model.classes_to_idx = data['classes_to_idx']
+            self.model.idx_to_classes = {int(k): v for k, v in data['idx_to_classes'].items()}
+            self.model.num_classes = data['num_classes']
+            
+            logger.info(f"Updated index data: {self.model.num_classes} classes, {len(embeddings)} examples")
+        except Exception as e:
+            logger.error(f"Error updating index data: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise ValueError(f"Error updating index data: {str(e)}")
         
     def process_image(self, image_bytes: bytes) -> Dict:
         """Process a single image and return predictions."""
@@ -181,12 +210,20 @@ class ModelService:
         
     def get_model_info(self) -> Dict:
         """Get current model state information."""
+        if self.model.index_embeddings is None or len(self.model.index_embeddings) == 0:
+            return {
+                "num_classes": 0,
+                "num_examples": 0,
+                "available_classes": [],
+                "examples_per_class": {}
+            }
+            
         return {
             "num_classes": self.model.num_classes,
-            "num_examples": len(self.model.index_embeddings) if self.model.index_embeddings is not None else 0,
+            "num_examples": len(self.model.index_embeddings),
             "available_classes": list(self.model.classes_to_idx.keys()),
             "examples_per_class": {
                 class_name: int((self.model.class_labels == class_idx).sum().item())
                 for class_name, class_idx in self.model.classes_to_idx.items()
-            } if self.model.index_embeddings is not None else {}
+            }
         } 
