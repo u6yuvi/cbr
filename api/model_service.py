@@ -25,6 +25,8 @@ class ModelService:
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
+        # Add storage for original images
+        self.model.original_images = []
         logger.info("ModelService initialized successfully")
         
     def process_image(self, image_bytes: bytes) -> Dict:
@@ -68,72 +70,41 @@ class ModelService:
             raise ValueError(f"Error processing image: {str(e)}")
             
     def add_class(self, class_name: str, image_bytes_list: List[bytes]) -> Dict:
-        """Add a new class with one or more example images."""
-        logger.info(f"Adding new class '{class_name}' with {len(image_bytes_list)} examples")
-        
-        if not image_bytes_list:
-            raise ValueError("No images provided")
-            
+        """Add a new class with example images."""
         embeddings_list = []
-        
-        # Get embeddings for all images
-        for i, image_bytes in enumerate(image_bytes_list):
-            try:
-                logger.debug(f"Processing image {i+1}/{len(image_bytes_list)}")
-                if not image_bytes:
-                    raise ValueError(f"Empty image data for image {i+1}")
-                    
-                embedding = self.get_embedding(image_bytes)
+        for image_bytes in image_bytes_list:
+            # Store original image
+            self.model.original_images.append(image_bytes)
+            # Process image for embedding
+            image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+            image_tensor = self.transform(image).unsqueeze(0)
+            with torch.no_grad():
+                embedding = self.model.get_embedding(image_tensor)
                 embeddings_list.append(embedding)
-            except Exception as e:
-                logger.error(f"Error processing image {i+1}: {str(e)}")
-                logger.error(traceback.format_exc())
-                raise ValueError(f"Error processing image {i+1}: {str(e)}")
+                
+        embeddings = torch.cat(embeddings_list)
+        
+        # If this is the first class, initialize the model
+        if self.model.index_embeddings is None:
+            self.model.add_index_data(embeddings, [class_name] * len(image_bytes_list))
+        else:
+            # Combine with existing embeddings
+            combined_embeddings = torch.cat([self.model.index_embeddings, embeddings])
             
-        try:
-            # Combine embeddings
-            new_embeddings = torch.cat(embeddings_list)
-            logger.debug(f"Created embeddings tensor of shape: {new_embeddings.shape}")
+            # Get current labels and add new ones
+            current_labels = [self.model.idx_to_classes[idx.item()] for idx in self.model.class_labels]
+            combined_labels = current_labels + [class_name] * len(image_bytes_list)
             
-            # If this is the first class, initialize the model
-            if self.model.index_embeddings is None:
-                logger.info("Initializing first class")
-                self.model.add_index_data(new_embeddings, [class_name] * len(image_bytes_list))
-            else:
-                logger.info("Adding to existing classes")
-                # Get current state for debugging
-                logger.debug(f"Current index embeddings shape: {self.model.index_embeddings.shape}")
-                logger.debug(f"Current class labels: {self.model.class_labels}")
-                
-                # Combine with existing embeddings
-                combined_embeddings = torch.cat([self.model.index_embeddings, new_embeddings])
-                logger.debug(f"Combined embeddings shape: {combined_embeddings.shape}")
-                
-                # Get current labels and add new ones
-                current_labels = [self.model.idx_to_classes[idx.item()] for idx in self.model.class_labels]
-                combined_labels = current_labels + [class_name] * len(image_bytes_list)
-                logger.debug(f"Combined labels: {combined_labels}")
-                
-                # Update model with all data
-                try:
-                    self.model.add_index_data(combined_embeddings, combined_labels)
-                except Exception as e:
-                    logger.error(f"Error in add_index_data: {str(e)}")
-                    logger.error(traceback.format_exc())
-                    raise ValueError(f"Error updating model: {str(e)}")
-                
-            logger.info(f"Successfully added class '{class_name}'")
-            return {
-                "status": "success",
-                "message": f"Added class '{class_name}' with {len(image_bytes_list)} examples",
-                "num_classes": self.model.num_classes,
-                "available_classes": list(self.model.classes_to_idx.keys())
-            }
-        except Exception as e:
-            logger.error(f"Error adding class: {str(e)}")
-            logger.error(traceback.format_exc())
-            raise ValueError(f"Error adding class '{class_name}': {str(e)}")
-            
+            # Update model with all data
+            self.model.add_index_data(combined_embeddings, combined_labels)
+        
+        return {
+            "status": "success",
+            "message": f"Added class '{class_name}' with {len(image_bytes_list)} examples",
+            "num_classes": self.model.num_classes,
+            "available_classes": list(self.model.classes_to_idx.keys())
+        }
+        
     def update_class(self, class_name: str, image_bytes_list: List[bytes], append: bool = False) -> Dict:
         """Update examples for an existing class."""
         if class_name not in self.model.classes_to_idx:
@@ -141,12 +112,49 @@ class ModelService:
             
         embeddings_list = []
         for image_bytes in image_bytes_list:
-            embedding = self.get_embedding(image_bytes)
-            embeddings_list.append(embedding)
-            
+            # Store original image
+            self.model.original_images.append(image_bytes)
+            # Process image for embedding
+            image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+            image_tensor = self.transform(image).unsqueeze(0)
+            with torch.no_grad():
+                embedding = self.model.get_embedding(image_tensor)
+                embeddings_list.append(embedding)
+                
         new_embeddings = torch.cat(embeddings_list)
-        self.model.update_class_embeddings(class_name, new_embeddings, append=append)
         
+        if append:
+            # Combine with existing embeddings
+            combined_embeddings = torch.cat([self.model.index_embeddings, new_embeddings])
+            
+            # Get current labels and add new ones
+            current_labels = [self.model.idx_to_classes[idx.item()] for idx in self.model.class_labels]
+            combined_labels = current_labels + [class_name] * len(image_bytes_list)
+            
+            # Update model with all data
+            self.model.add_index_data(combined_embeddings, combined_labels)
+        else:
+            # Get indices for this class
+            class_idx = self.model.classes_to_idx[class_name]
+            class_mask = (self.model.class_labels == class_idx)
+            other_mask = ~class_mask
+            
+            # Keep embeddings from other classes
+            other_embeddings = self.model.index_embeddings[other_mask]
+            other_labels = [self.model.idx_to_classes[idx.item()] for idx in self.model.class_labels[other_mask]]
+            
+            # Combine with new embeddings
+            combined_embeddings = torch.cat([other_embeddings, new_embeddings])
+            combined_labels = other_labels + [class_name] * len(image_bytes_list)
+            
+            # Update model with all data
+            self.model.add_index_data(combined_embeddings, combined_labels)
+            
+            # Remove old images for this class
+            old_indices = [i for i, is_class in enumerate(class_mask) if is_class]
+            for idx in sorted(old_indices, reverse=True):
+                self.model.original_images.pop(idx)
+            
         return {
             "status": "success",
             "message": f"{'Added' if append else 'Updated'} {len(image_bytes_list)} examples for class '{class_name}'",
@@ -158,12 +166,34 @@ class ModelService:
         if class_name not in self.model.classes_to_idx:
             raise ValueError(f"Class '{class_name}' not found")
             
-        self.model.remove_class(class_name)
+        # Get indices for this class
+        class_idx = self.model.classes_to_idx[class_name]
+        class_mask = (self.model.class_labels == class_idx)
+        other_mask = ~class_mask
+        
+        # Keep embeddings from other classes
+        if torch.any(other_mask):
+            other_embeddings = self.model.index_embeddings[other_mask]
+            other_labels = [self.model.idx_to_classes[idx.item()] for idx in self.model.class_labels[other_mask]]
+            
+            # Update model with remaining data
+            self.model.add_index_data(other_embeddings, other_labels)
+        else:
+            # If no other classes exist, reset the model
+            self.model.index_embeddings = None
+            self.model.class_labels = None
+            self.model.classes_to_idx = {}
+            self.model.idx_to_classes = {}
+        
+        # Remove original images for this class
+        indices_to_remove = [i for i, is_class in enumerate(class_mask) if is_class]
+        for idx in sorted(indices_to_remove, reverse=True):
+            self.model.original_images.pop(idx)
         
         return {
             "status": "success",
             "message": f"Removed class '{class_name}'",
-            "num_classes": self.model.num_classes,
+            "num_classes": len(self.model.classes_to_idx),
             "available_classes": list(self.model.classes_to_idx.keys())
         }
         
@@ -173,6 +203,10 @@ class ModelService:
             if max(indices) >= len(self.model.index_embeddings):
                 raise ValueError("Invalid index provided")
                 
+        # Remove original images
+        for idx in sorted(indices, reverse=True):
+            self.model.original_images.pop(idx)
+            
         self.model.remove_examples(indices)
         
         return {

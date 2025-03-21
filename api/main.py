@@ -1,8 +1,14 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from typing import List, Optional
 import uvicorn
 import logging
+import base64
+import io
+import traceback
+from PIL import Image
+from torchvision import transforms
 
 from .model_service import TenantModelManager
 from .schemas import (
@@ -190,6 +196,38 @@ async def remove_examples(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/class/{class_name}/images", tags=["Class Management"])
+async def get_class_images(
+    class_name: str,
+    x_tenant_id: str = Header(...)
+):
+    """Get all images for a specific class."""
+    try:
+        model_service = tenant_manager.get_or_create_model(x_tenant_id)
+        if class_name not in model_service.model.classes_to_idx:
+            raise HTTPException(status_code=404, detail=f"Class '{class_name}' not found")
+        
+        # Get indices for this class
+        class_idx = model_service.model.classes_to_idx[class_name]
+        class_mask = (model_service.model.class_labels == class_idx)
+        
+        # Get the original images for this class
+        images = []
+        for i, is_class in enumerate(class_mask):
+            if is_class:
+                # Get original image bytes
+                img_bytes = model_service.model.original_images[i]
+                # Convert to base64 for JSON transport
+                img_b64 = base64.b64encode(img_bytes).decode('utf-8')
+                images.append(img_b64)
+        
+        return JSONResponse(content={"images": images})
+        
+    except Exception as e:
+        logger.error(f"Error getting class images: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     uvicorn.run("api.main:app", host="0.0.0.0", port=8000, reload=True) 
