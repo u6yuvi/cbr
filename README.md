@@ -368,9 +368,42 @@ Response:
 
 A FastAPI service that provides dynamic image classification with tenant-specific models. Each tenant gets their own isolated model instance for managing classes and making predictions.
 
-## Running the Service
+## Features
+- Multi-tenant support with isolated model instances
+- Dynamic class management (add/update/remove)
+- Real-time image classification
+- RESTful API with FastAPI
+- Docker support for easy deployment
+- Automatic tenant ID generation
+- Tenant usage tracking
 
+## Deployment Options
+
+### 1. Docker Deployment (Recommended)
 ```bash
+# Clone the repository
+git clone <repository-url>
+cd <repository-name>
+
+# Create data directory for persistence
+mkdir -p data
+
+# Build and start the container
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop the service
+docker-compose down
+```
+
+### 2. Local Development
+```bash
+# Create and activate virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
 # Install dependencies
 pip install -r requirements.txt
 
@@ -380,28 +413,34 @@ uvicorn api.main:app --reload
 
 The API will be available at `http://localhost:8000`. Interactive documentation is available at `http://localhost:8000/docs`.
 
-## API Examples using curl
+## Directory Structure
+```
+.
+├── api/                # API implementation
+├── data/              # Persistent data storage (when using Docker)
+├── Dockerfile         # Docker image definition
+├── docker-compose.yml # Docker compose configuration
+└── requirements.txt   # Python dependencies
+```
+
+## API Usage
 
 ### 1. Tenant Management
 
+First, create a tenant to get a unique tenant ID:
+
 ```bash
-# Create a new tenant (generates unique ID)
+# Create a new tenant with a name
 curl -X POST \
   -H "Content-Type: application/json" \
   -d '{"name": "user1"}' \
   http://localhost:8000/tenants
 
-# Create a tenant without a name
+# Create an anonymous tenant
 curl -X POST http://localhost:8000/tenants
-
-# List all tenants and their metadata
-curl http://localhost:8000/tenants
-
-# Remove a tenant and their model
-curl -X DELETE http://localhost:8000/tenants/tenant1
 ```
 
-Example tenant creation response:
+Example response:
 ```json
 {
     "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
@@ -410,144 +449,77 @@ Example tenant creation response:
 }
 ```
 
-Example tenants list response:
-```json
-{
-    "tenant_ids": [
-        "550e8400-e29b-41d4-a716-446655440000",
-        "7c9e6679-7425-40de-944b-e07fc1f90ae7"
-    ],
-    "tenants": {
-        "550e8400-e29b-41d4-a716-446655440000": {
-            "name": "user1",
-            "created_at": "2024-03-14T12:34:56.789Z",
-            "last_accessed": "2024-03-14T12:35:00.123Z"
-        },
-        "7c9e6679-7425-40de-944b-e07fc1f90ae7": {
-            "name": null,
-            "created_at": "2024-03-14T12:36:00.000Z",
-            "last_accessed": "2024-03-14T12:36:00.000Z"
-        }
-    }
-}
+View existing tenants:
+```bash
+# List all tenants and their metadata
+curl http://localhost:8000/tenants
+
+# Remove a tenant
+curl -X DELETE http://localhost:8000/tenants/tenant1
 ```
 
-### 2. Model Information
+### 2. Using the API with Your Tenant ID
+
+All subsequent API calls require the `X-Tenant-ID` header:
 
 ```bash
-# Get model info for a specific tenant
-curl -H "X-Tenant-ID: tenant1" http://localhost:8000/model/info
+# Get model info
+curl -H "X-Tenant-ID: your-tenant-id" \
+  http://localhost:8000/model/info
+
+# Add a class
+curl -X POST \
+  -H "X-Tenant-ID: your-tenant-id" \
+  -F "files=@dog1.jpg" \
+  -F "files=@dog2.jpg" \
+  http://localhost:8000/class/add/dog
+
+# Make predictions
+curl -X POST \
+  -H "X-Tenant-ID: your-tenant-id" \
+  -F "file=@test_image.jpg" \
+  http://localhost:8000/predict
 ```
 
 ### 3. Class Management
 
 ```bash
-# Add a new class with example images for tenant1
+# Add more examples to a class
 curl -X POST \
-  -H "X-Tenant-ID: tenant1" \
-  -F "files=@path/to/dog1.jpg" \
-  -F "files=@path/to/dog2.jpg" \
-  http://localhost:8000/class/add/dog
-
-# Add same class for tenant2 (separate model instance)
-curl -X POST \
-  -H "X-Tenant-ID: tenant2" \
-  -F "files=@path/to/dog1.jpg" \
-  http://localhost:8000/class/add/dog
-
-# Update class by adding more examples
-curl -X POST \
-  -H "X-Tenant-ID: tenant1" \
-  -F "files=@path/to/dog3.jpg" \
+  -H "X-Tenant-ID: your-tenant-id" \
+  -F "files=@dog3.jpg" \
   -F "append=true" \
   http://localhost:8000/class/update/dog
 
-# Replace all examples for a class
+# Replace class examples
 curl -X POST \
-  -H "X-Tenant-ID: tenant1" \
-  -F "files=@path/to/new_dog.jpg" \
+  -H "X-Tenant-ID: your-tenant-id" \
+  -F "files=@new_dog.jpg" \
   -F "append=false" \
   http://localhost:8000/class/update/dog
 
 # Remove a class
 curl -X DELETE \
-  -H "X-Tenant-ID: tenant1" \
+  -H "X-Tenant-ID: your-tenant-id" \
   http://localhost:8000/class/dog
-```
 
-### 4. Making Predictions
-
-```bash
-# Classify an image using tenant1's model
-curl -X POST \
-  -H "X-Tenant-ID: tenant1" \
-  -F "file=@path/to/test_image.jpg" \
-  http://localhost:8000/predict
-
-# Same image, different tenant's model
-curl -X POST \
-  -H "X-Tenant-ID: tenant2" \
-  -F "file=@path/to/test_image.jpg" \
-  http://localhost:8000/predict
-```
-
-### 5. Example Management
-
-```bash
-# Remove specific examples by their indices
+# Remove specific examples
 curl -X DELETE \
-  -H "X-Tenant-ID: tenant1" \
+  -H "X-Tenant-ID: your-tenant-id" \
   -H "Content-Type: application/json" \
   -d '[0, 2]' \
   http://localhost:8000/examples
 ```
 
-## Response Examples
-
-### Model Info Response
-```json
-{
-    "num_classes": 2,
-    "num_examples": 5,
-    "available_classes": ["dog", "cat"],
-    "examples_per_class": {
-        "dog": 3,
-        "cat": 2
-    }
-}
-```
-
-### Prediction Response
-```json
-{
-    "predicted_class": "dog",
-    "confidence": 0.92,
-    "class_probabilities": {
-        "dog": 0.92,
-        "cat": 0.08
-    }
-}
-```
-
-### Class Addition Response
-```json
-{
-    "status": "success",
-    "message": "Added class 'dog' with 2 examples",
-    "num_classes": 1,
-    "available_classes": ["dog"]
-}
-```
-
 ## Python Client Usage
 
-For programmatic access, you can use the provided Python client:
+For programmatic access, use the provided Python client:
 
 ```python
 from api.client import CbRClient
 
 # Create client for a specific tenant
-client = CbRClient(tenant_id="tenant1")
+client = CbRClient(tenant_id="your-tenant-id")
 
 # Add a class
 client.add_class("dog", ["dog1.jpg", "dog2.jpg"])
@@ -557,13 +529,39 @@ result = client.predict("test_image.jpg")
 
 # Or specify tenant per-call
 client = CbRClient()
-client.add_class("cat", ["cat1.jpg"], tenant_id="tenant2")
+client.add_class("cat", ["cat1.jpg"], tenant_id="another-tenant-id")
 ```
 
-## Notes
+## Docker Notes
 
-1. Each tenant gets their own isolated model instance
-2. Models are created on-demand when first accessed
-3. All API endpoints require the `X-Tenant-ID` header
-4. Tenant data persists until explicitly removed
-5. Interactive API documentation available at `/docs`
+1. Data Persistence
+   - Model data is stored in the `./data` directory
+   - This directory is mounted as a volume in Docker
+   - Ensure proper permissions on the data directory
+
+2. Health Monitoring
+   - The service includes a health check endpoint
+   - Docker will automatically restart the container on failure
+   - Health status can be viewed with `docker-compose ps`
+
+3. Environment Configuration
+   - Environment variables can be added in docker-compose.yml
+   - The service runs on port 8000 by default
+   - Port mapping can be modified in docker-compose.yml
+
+4. Development Mode
+   - Code changes are reflected immediately due to volume mounting
+   - Logs can be viewed in real-time with `docker-compose logs -f`
+   - Use `docker-compose down` to clean up resources
+
+## Security Notes
+
+1. Tenant Isolation
+   - Each tenant gets their own isolated model instance
+   - Tenant IDs are required for all operations
+   - Invalid tenant IDs are rejected
+
+2. API Access
+   - Use HTTPS in production
+   - Implement proper authentication/authorization
+   - Consider rate limiting for tenant requests
