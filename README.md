@@ -363,3 +363,207 @@ Response:
     "num_examples": 2
 }
 ```
+
+# Multi-tenant Classification by Retrieval API
+
+A FastAPI service that provides dynamic image classification with tenant-specific models. Each tenant gets their own isolated model instance for managing classes and making predictions.
+
+## Running the Service
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Start the FastAPI server
+uvicorn api.main:app --reload
+```
+
+The API will be available at `http://localhost:8000`. Interactive documentation is available at `http://localhost:8000/docs`.
+
+## API Examples using curl
+
+### 1. Tenant Management
+
+```bash
+# Create a new tenant (generates unique ID)
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"name": "user1"}' \
+  http://localhost:8000/tenants
+
+# Create a tenant without a name
+curl -X POST http://localhost:8000/tenants
+
+# List all tenants and their metadata
+curl http://localhost:8000/tenants
+
+# Remove a tenant and their model
+curl -X DELETE http://localhost:8000/tenants/tenant1
+```
+
+Example tenant creation response:
+```json
+{
+    "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "user1",
+    "created_at": "2024-03-14T12:34:56.789Z"
+}
+```
+
+Example tenants list response:
+```json
+{
+    "tenant_ids": [
+        "550e8400-e29b-41d4-a716-446655440000",
+        "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+    ],
+    "tenants": {
+        "550e8400-e29b-41d4-a716-446655440000": {
+            "name": "user1",
+            "created_at": "2024-03-14T12:34:56.789Z",
+            "last_accessed": "2024-03-14T12:35:00.123Z"
+        },
+        "7c9e6679-7425-40de-944b-e07fc1f90ae7": {
+            "name": null,
+            "created_at": "2024-03-14T12:36:00.000Z",
+            "last_accessed": "2024-03-14T12:36:00.000Z"
+        }
+    }
+}
+```
+
+### 2. Model Information
+
+```bash
+# Get model info for a specific tenant
+curl -H "X-Tenant-ID: tenant1" http://localhost:8000/model/info
+```
+
+### 3. Class Management
+
+```bash
+# Add a new class with example images for tenant1
+curl -X POST \
+  -H "X-Tenant-ID: tenant1" \
+  -F "files=@path/to/dog1.jpg" \
+  -F "files=@path/to/dog2.jpg" \
+  http://localhost:8000/class/add/dog
+
+# Add same class for tenant2 (separate model instance)
+curl -X POST \
+  -H "X-Tenant-ID: tenant2" \
+  -F "files=@path/to/dog1.jpg" \
+  http://localhost:8000/class/add/dog
+
+# Update class by adding more examples
+curl -X POST \
+  -H "X-Tenant-ID: tenant1" \
+  -F "files=@path/to/dog3.jpg" \
+  -F "append=true" \
+  http://localhost:8000/class/update/dog
+
+# Replace all examples for a class
+curl -X POST \
+  -H "X-Tenant-ID: tenant1" \
+  -F "files=@path/to/new_dog.jpg" \
+  -F "append=false" \
+  http://localhost:8000/class/update/dog
+
+# Remove a class
+curl -X DELETE \
+  -H "X-Tenant-ID: tenant1" \
+  http://localhost:8000/class/dog
+```
+
+### 4. Making Predictions
+
+```bash
+# Classify an image using tenant1's model
+curl -X POST \
+  -H "X-Tenant-ID: tenant1" \
+  -F "file=@path/to/test_image.jpg" \
+  http://localhost:8000/predict
+
+# Same image, different tenant's model
+curl -X POST \
+  -H "X-Tenant-ID: tenant2" \
+  -F "file=@path/to/test_image.jpg" \
+  http://localhost:8000/predict
+```
+
+### 5. Example Management
+
+```bash
+# Remove specific examples by their indices
+curl -X DELETE \
+  -H "X-Tenant-ID: tenant1" \
+  -H "Content-Type: application/json" \
+  -d '[0, 2]' \
+  http://localhost:8000/examples
+```
+
+## Response Examples
+
+### Model Info Response
+```json
+{
+    "num_classes": 2,
+    "num_examples": 5,
+    "available_classes": ["dog", "cat"],
+    "examples_per_class": {
+        "dog": 3,
+        "cat": 2
+    }
+}
+```
+
+### Prediction Response
+```json
+{
+    "predicted_class": "dog",
+    "confidence": 0.92,
+    "class_probabilities": {
+        "dog": 0.92,
+        "cat": 0.08
+    }
+}
+```
+
+### Class Addition Response
+```json
+{
+    "status": "success",
+    "message": "Added class 'dog' with 2 examples",
+    "num_classes": 1,
+    "available_classes": ["dog"]
+}
+```
+
+## Python Client Usage
+
+For programmatic access, you can use the provided Python client:
+
+```python
+from api.client import CbRClient
+
+# Create client for a specific tenant
+client = CbRClient(tenant_id="tenant1")
+
+# Add a class
+client.add_class("dog", ["dog1.jpg", "dog2.jpg"])
+
+# Make predictions
+result = client.predict("test_image.jpg")
+
+# Or specify tenant per-call
+client = CbRClient()
+client.add_class("cat", ["cat1.jpg"], tenant_id="tenant2")
+```
+
+## Notes
+
+1. Each tenant gets their own isolated model instance
+2. Models are created on-demand when first accessed
+3. All API endpoints require the `X-Tenant-ID` header
+4. Tenant data persists until explicitly removed
+5. Interactive API documentation available at `/docs`

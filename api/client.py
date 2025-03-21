@@ -1,8 +1,8 @@
 """
-Classification by Retrieval (CbR) API Client
+Multi-tenant Classification by Retrieval (CbR) API Client
 
 This module provides a Python client for interacting with the CbR FastAPI service.
-It includes methods for managing classes, updating examples, and making predictions.
+It includes methods for managing tenants, classes, updating examples, and making predictions.
 """
 
 import requests
@@ -15,16 +15,27 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class CbRClient:
-    """Client for interacting with the Classification by Retrieval (CbR) API."""
+    """Client for interacting with the Multi-tenant Classification by Retrieval (CbR) API."""
     
-    def __init__(self, base_url: str = "http://localhost:8000"):
+    def __init__(self, base_url: str = "http://localhost:8000", tenant_id: Optional[str] = None):
         """
         Initialize the CbR client.
         
         Args:
             base_url: Base URL of the CbR API service
+            tenant_id: Optional tenant ID. If not provided, must be specified in each method call
         """
         self.base_url = base_url.rstrip('/')
+        self.tenant_id = tenant_id
+        
+    def _get_headers(self, tenant_id: Optional[str] = None) -> Dict[str, str]:
+        """Get headers with tenant ID."""
+        headers = {}
+        effective_tenant_id = tenant_id or self.tenant_id
+        if effective_tenant_id is None:
+            raise ValueError("Tenant ID must be provided either during initialization or method call")
+        headers["X-Tenant-ID"] = effective_tenant_id
+        return headers
         
     def _handle_response(self, response: requests.Response) -> Dict:
         """
@@ -52,11 +63,44 @@ class CbRClient:
                 pass
             logger.error(error_msg)
             raise
-            
-    def get_model_info(self) -> Dict:
+
+    def list_tenants(self) -> List[str]:
         """
-        Get current model state information.
+        Get list of all tenant IDs.
         
+        Returns:
+            List of tenant IDs
+        """
+        url = f"{self.base_url}/tenants"
+        response = requests.get(url)
+        result = self._handle_response(response)
+        return result["tenant_ids"]
+    
+    def remove_tenant(self, tenant_id: Optional[str] = None) -> Dict:
+        """
+        Remove a tenant and their model instance.
+        
+        Args:
+            tenant_id: Optional tenant ID to remove. If not provided, uses the client's tenant_id
+            
+        Returns:
+            Dict containing operation status
+        """
+        effective_tenant_id = tenant_id or self.tenant_id
+        if effective_tenant_id is None:
+            raise ValueError("Tenant ID must be provided")
+            
+        url = f"{self.base_url}/tenants/{effective_tenant_id}"
+        response = requests.delete(url)
+        return self._handle_response(response)
+        
+    def get_model_info(self, tenant_id: Optional[str] = None) -> Dict:
+        """
+        Get current model state information for a tenant.
+        
+        Args:
+            tenant_id: Optional tenant ID. If not provided, uses the client's tenant_id
+            
         Returns:
             Dict containing model information including:
             - num_classes: Number of classes in the model
@@ -65,16 +109,18 @@ class CbRClient:
             - examples_per_class: Dict mapping class names to number of examples
         """
         url = f"{self.base_url}/model/info"
-        response = requests.get(url)
+        headers = self._get_headers(tenant_id)
+        response = requests.get(url, headers=headers)
         return self._handle_response(response)
         
-    def add_class(self, class_name: str, image_paths: List[Union[str, Path]]) -> Dict:
+    def add_class(self, class_name: str, image_paths: List[Union[str, Path]], tenant_id: Optional[str] = None) -> Dict:
         """
-        Add a new class with example images.
+        Add a new class with example images to a tenant's model.
         
         Args:
             class_name: Name of the class to add
             image_paths: List of paths to example images
+            tenant_id: Optional tenant ID. If not provided, uses the client's tenant_id
             
         Returns:
             Dict containing operation status and updated model information
@@ -87,6 +133,7 @@ class CbRClient:
             raise ValueError("At least one image path must be provided")
             
         url = f"{self.base_url}/class/add/{class_name}"
+        headers = self._get_headers(tenant_id)
         files = []
         
         try:
@@ -96,7 +143,7 @@ class CbRClient:
                     raise FileNotFoundError(f"Image file not found: {path}")
                 files.append(("files", open(path, "rb")))
                 
-            response = requests.post(url, files=files)
+            response = requests.post(url, headers=headers, files=files)
             return self._handle_response(response)
             
         finally:
@@ -104,19 +151,21 @@ class CbRClient:
             for _, file in files:
                 file.close()
                 
-    def update_class(self, class_name: str, image_paths: List[Union[str, Path]], append: bool = True) -> Dict:
+    def update_class(self, class_name: str, image_paths: List[Union[str, Path]], append: bool = True, tenant_id: Optional[str] = None) -> Dict:
         """
-        Update or append examples to an existing class.
+        Update or append examples to an existing class in a tenant's model.
         
         Args:
             class_name: Name of the class to update
             image_paths: List of paths to example images
             append: If True, append new examples; if False, replace existing ones
+            tenant_id: Optional tenant ID. If not provided, uses the client's tenant_id
             
         Returns:
             Dict containing operation status and number of examples
         """
         url = f"{self.base_url}/class/update/{class_name}"
+        headers = self._get_headers(tenant_id)
         files = []
         
         try:
@@ -127,19 +176,20 @@ class CbRClient:
                 files.append(("files", open(path, "rb")))
                 
             data = {"append": "true" if append else "false"}
-            response = requests.post(url, files=files, data=data)
+            response = requests.post(url, headers=headers, files=files, data=data)
             return self._handle_response(response)
             
         finally:
             for _, file in files:
                 file.close()
                 
-    def predict(self, image_path: Union[str, Path]) -> Dict:
+    def predict(self, image_path: Union[str, Path], tenant_id: Optional[str] = None) -> Dict:
         """
-        Classify an image.
+        Classify an image using a tenant's model.
         
         Args:
             image_path: Path to the image file to classify
+            tenant_id: Optional tenant ID. If not provided, uses the client's tenant_id
             
         Returns:
             Dict containing:
@@ -148,6 +198,7 @@ class CbRClient:
             - class_probabilities: Dict mapping class names to probabilities
         """
         url = f"{self.base_url}/predict"
+        headers = self._get_headers(tenant_id)
         path = Path(image_path)
         
         if not path.exists():
@@ -155,35 +206,39 @@ class CbRClient:
             
         with open(path, "rb") as f:
             files = {"file": f}
-            response = requests.post(url, files=files)
+            response = requests.post(url, headers=headers, files=files)
             return self._handle_response(response)
             
-    def remove_class(self, class_name: str) -> Dict:
+    def remove_class(self, class_name: str, tenant_id: Optional[str] = None) -> Dict:
         """
-        Remove a class and all its examples.
+        Remove a class from a tenant's model.
         
         Args:
             class_name: Name of the class to remove
+            tenant_id: Optional tenant ID. If not provided, uses the client's tenant_id
             
         Returns:
             Dict containing operation status and updated model information
         """
         url = f"{self.base_url}/class/{class_name}"
-        response = requests.delete(url)
+        headers = self._get_headers(tenant_id)
+        response = requests.delete(url, headers=headers)
         return self._handle_response(response)
         
-    def remove_examples(self, indices: List[int]) -> Dict:
+    def remove_examples(self, indices: List[int], tenant_id: Optional[str] = None) -> Dict:
         """
-        Remove specific examples by their indices.
+        Remove specific examples from a tenant's model.
         
         Args:
             indices: List of indices to remove
+            tenant_id: Optional tenant ID. If not provided, uses the client's tenant_id
             
         Returns:
             Dict containing operation status and number of remaining examples
         """
         url = f"{self.base_url}/examples"
-        response = requests.delete(url, json=indices)
+        headers = self._get_headers(tenant_id)
+        response = requests.delete(url, headers=headers, json=indices)
         return self._handle_response(response)
 
 

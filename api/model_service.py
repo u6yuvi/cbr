@@ -7,6 +7,8 @@ from typing import List, Dict, Optional
 import numpy as np
 import logging
 import traceback
+import uuid
+from datetime import datetime, UTC
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -189,4 +191,69 @@ class ModelService:
                 class_name: int((self.model.class_labels == class_idx).sum().item())
                 for class_name, class_idx in self.model.classes_to_idx.items()
             } if self.model.index_embeddings is not None else {}
-        } 
+        }
+
+class TenantModelManager:
+    def __init__(self):
+        self.tenant_models: Dict[str, ModelService] = {}
+        self.tenant_metadata: Dict[str, Dict] = {}
+        logger.info("Initialized TenantModelManager")
+    
+    def create_tenant(self, name: Optional[str] = None) -> Dict[str, str]:
+        """Create a new tenant with a unique ID."""
+        tenant_id = str(uuid.uuid4())
+        creation_time = datetime.now(UTC).isoformat()
+        
+        # Store tenant metadata
+        self.tenant_metadata[tenant_id] = {
+            "name": name,
+            "created_at": creation_time,
+            "last_accessed": creation_time
+        }
+        
+        logger.info(f"Created new tenant: {tenant_id} (name: {name})")
+        return {
+            "tenant_id": tenant_id,
+            "name": name,
+            "created_at": creation_time
+        }
+    
+    def get_tenant_metadata(self, tenant_id: str) -> Optional[Dict]:
+        """Get metadata for a specific tenant."""
+        return self.tenant_metadata.get(tenant_id)
+    
+    def get_or_create_model(self, tenant_id: str) -> ModelService:
+        """Get an existing model instance for a tenant or create a new one."""
+        if tenant_id not in self.tenant_models:
+            if tenant_id not in self.tenant_metadata:
+                raise ValueError(f"Tenant {tenant_id} does not exist. Please create a tenant first.")
+            logger.info(f"Creating new model instance for tenant {tenant_id}")
+            self.tenant_models[tenant_id] = ModelService()
+            
+        # Update last accessed time
+        self.tenant_metadata[tenant_id]["last_accessed"] = datetime.now(UTC).isoformat()
+        return self.tenant_models[tenant_id]
+    
+    def remove_tenant(self, tenant_id: str) -> bool:
+        """Remove a tenant's model instance and metadata."""
+        if tenant_id in self.tenant_models:
+            del self.tenant_models[tenant_id]
+            del self.tenant_metadata[tenant_id]
+            logger.info(f"Removed tenant {tenant_id} and their model instance")
+            return True
+        return False
+    
+    def get_tenant_ids(self) -> List[str]:
+        """Get list of all tenant IDs."""
+        return list(self.tenant_metadata.keys())
+    
+    def get_tenant_info(self, tenant_id: str) -> Optional[Dict]:
+        """Get model info for a specific tenant."""
+        if tenant_id in self.tenant_models:
+            model_info = self.tenant_models[tenant_id].get_model_info()
+            metadata = self.tenant_metadata[tenant_id]
+            return {
+                **model_info,
+                "tenant_metadata": metadata
+            }
+        return None 
