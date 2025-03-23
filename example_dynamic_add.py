@@ -76,30 +76,30 @@ def main():
         model.update_class_embeddings('cat', new_cat_embedding, append=True)
     
     print("\nTesting after adding new cat example:")
-    process_image(model, "test_images/dog.jpg", transform)
+    process_image(model, "test_images/cat2.jpg", transform)
     
     # Step 3: Add a completely new class (bird)
-    print("\nStep 3: Adding New Class (Bird)")
-    print("-" * 50)
+    # print("\nStep 3: Adding New Class (Bird)")
+    # print("-" * 50)
     
-    # Create bird directory and download a sample bird image
-    os.makedirs("index_images/bird", exist_ok=True)
-    bird_path = "index_images/bird/bird1.jpg"
+    # # Create bird directory and download a sample bird image
+    # os.makedirs("index_images/bird", exist_ok=True)
+    # bird_path = "index_images/bird/bird1.jpg"
     
-    # For demonstration, we'll use the dog image as a bird (in real use, you'd have actual bird images)
-    with torch.no_grad():
-        bird_img = transform(Image.open(dog_path).convert('RGB')).unsqueeze(0)
-        bird_embedding = model.get_embedding(bird_img)
+    # # For demonstration, we'll use the dog image as a bird (in real use, you'd have actual bird images)
+    # with torch.no_grad():
+    #     bird_img = transform(Image.open(dog_path).convert('RGB')).unsqueeze(0)
+    #     bird_embedding = model.get_embedding(bird_img)
         
-        # Combine with existing embeddings
-        combined_embeddings = torch.cat([model.index_embeddings, bird_embedding])
-        combined_labels = model.class_labels.tolist() + [len(model.classes_to_idx)]
+    #     # Combine with existing embeddings
+    #     combined_embeddings = torch.cat([model.index_embeddings, bird_embedding])
+    #     combined_labels = model.class_labels.tolist() + [len(model.classes_to_idx)]
         
-        # Update model with new class
-        model.add_index_data(combined_embeddings, ['cat', 'dog', 'bird'])
+    #     # Update model with new class
+    #     model.add_index_data(combined_embeddings, ['cat', 'dog', 'bird'])
     
-    print("\nTesting after adding bird class:")
-    process_image(model, "test_images/dog.jpg", transform)
+    # print("\nTesting after adding bird class:")
+    # process_image(model, "test_images/dog.jpg", transform)
 
 if __name__ == "__main__":
     main() 
