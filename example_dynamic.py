@@ -5,6 +5,11 @@ from cbr_model import ClassificationByRetrieval
 import os
 from pathlib import Path
 from collections import defaultdict
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import precision_score, recall_score, confusion_matrix, classification_report
+from sklearn.preprocessing import LabelEncoder
 
 def load_index_images(index_dir: str, transform, initial_only=False):
     """
@@ -89,6 +94,35 @@ def process_image(model, image_path, transform):
             'embedding': embedding
         }
 
+def save_metrics(metrics_dict, save_path='metrics'):
+    """Save evaluation metrics to files"""
+    import json
+    
+    # Create metrics directory if it doesn't exist
+    Path(save_path).mkdir(parents=True, exist_ok=True)
+    
+    # Save raw metrics as JSON
+    with open(f'{save_path}/metrics.json', 'w') as f:
+        json.dump(metrics_dict, f, indent=4)
+    
+    # Create confusion matrix visualization
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(metrics_dict['confusion_matrix'], 
+                annot=True, 
+                fmt='d',
+                xticklabels=metrics_dict['classes'],
+                yticklabels=metrics_dict['classes'])
+    plt.title('Confusion Matrix')
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.tight_layout()
+    plt.savefig(f'{save_path}/confusion_matrix.png')
+    plt.close()
+    
+    # Save classification report
+    with open(f'{save_path}/classification_report.txt', 'w') as f:
+        f.write(metrics_dict['classification_report'])
+
 def main():
     # Define image transforms
     transform = transforms.Compose([
@@ -114,9 +148,13 @@ def main():
         print(f"Added {len(initial_labels)} images to initial index")
         print(f"Model classes after initialization: {model.idx_to_classes}")
         
-        # Process remaining images progressively
-        print("\nProcessing remaining images...")
+        # Initialize metrics dictionary
         metrics = defaultdict(lambda: {'correct': 0, 'total': 0})
+        
+        # Collect all predictions and true labels
+        y_true = []
+        y_pred = []
+        all_probabilities = []
         
         # Keep track of all embeddings and labels
         all_embeddings = initial_embeddings
@@ -134,6 +172,11 @@ def main():
                 try:
                     # Process image and get predictions
                     results = process_image(model, img_path, transform)
+                    
+                    # Collect true and predicted labels
+                    y_true.append(class_name)
+                    y_pred.append(results['predicted_class'])
+                    all_probabilities.append(results['probabilities'].numpy())
                     
                     # Update metrics
                     metrics[class_name]['total'] += 1
@@ -178,18 +221,54 @@ def main():
                     traceback.print_exc()
                     continue
         
-        # Print final metrics
-        print("\nFinal Results:")
-        total_correct = sum(m['correct'] for m in metrics.values())
-        total_images = sum(m['total'] for m in metrics.values())
+        # Calculate final metrics
+        # Convert labels to numerical form for sklearn metrics
+        le = LabelEncoder()
+        y_true_encoded = le.fit_transform(y_true)
+        y_pred_encoded = le.transform(y_pred)
         
-        if total_images > 0:
-            print(f"\nOverall accuracy: {total_correct/total_images:.2%}")
-            print("\nPer-class results:")
-            for class_name, m in metrics.items():
-                if m['total'] > 0:
-                    accuracy = m['correct'] / m['total']
-                    print(f"{class_name}: {accuracy:.2%} ({m['correct']}/{m['total']})")
+        # Calculate metrics
+        metrics_dict = {
+            'classes': list(le.classes_),
+            'confusion_matrix': confusion_matrix(y_true_encoded, y_pred_encoded).tolist(),
+            'classification_report': classification_report(y_true, y_pred),
+            'overall_accuracy': sum(m['correct'] for m in metrics.values()) / sum(m['total'] for m in metrics.values()),
+            'per_class_metrics': {
+                class_name: {
+                    'precision': precision_score(
+                        [1 if y == class_name else 0 for y in y_true],
+                        [1 if y == class_name else 0 for y in y_pred],
+                        zero_division=0
+                    ),
+                    'recall': recall_score(
+                        [1 if y == class_name else 0 for y in y_true],
+                        [1 if y == class_name else 0 for y in y_pred],
+                        zero_division=0
+                    ),
+                    'total_samples': metrics[class_name]['total'],
+                    'correct_predictions': metrics[class_name]['correct']
+                }
+                for class_name in classes
+            }
+        }
+        
+        # Save metrics
+        save_metrics(metrics_dict)
+        
+        # Print final results
+        print("\nFinal Results:")
+        print(f"Overall accuracy: {metrics_dict['overall_accuracy']:.2%}")
+        print("\nConfusion Matrix:")
+        print(np.array(metrics_dict['confusion_matrix']))
+        print("\nClassification Report:")
+        print(metrics_dict['classification_report'])
+        print("\nPer-class metrics:")
+        for class_name, class_metrics in metrics_dict['per_class_metrics'].items():
+            print(f"\n{class_name}:")
+            print(f"Precision: {class_metrics['precision']:.2%}")
+            print(f"Recall: {class_metrics['recall']:.2%}")
+            print(f"Samples: {class_metrics['total_samples']}")
+            print(f"Correct: {class_metrics['correct_predictions']}")
     
     except Exception as e:
         print(f"Error during execution: {e}")
