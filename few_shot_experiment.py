@@ -31,6 +31,7 @@ def load_index_images(index_dir: str, transform, samples_per_class: int = None):
     """
     embeddings_list = []
     labels_list = []
+    used_images = {}  # Track which images were used for training
     model = ClassificationByRetrieval()
     model.eval()
     
@@ -47,7 +48,10 @@ def load_index_images(index_dir: str, transform, samples_per_class: int = None):
         
         # Randomly sample if samples_per_class is specified
         if samples_per_class is not None and samples_per_class < len(image_paths):
-            image_paths = random.sample(image_paths, samples_per_class)
+            selected_paths = random.sample(image_paths, samples_per_class)
+            # Store the selected paths for this class
+            used_images[class_name] = [str(p) for p in selected_paths]
+            image_paths = selected_paths
         
         # Process each image in the class directory
         for img_path in image_paths:
@@ -71,13 +75,20 @@ def load_index_images(index_dir: str, transform, samples_per_class: int = None):
     # Stack all embeddings
     if embeddings_list:
         embeddings = torch.cat(embeddings_list, dim=0)
-        return embeddings, labels_list
+        return embeddings, labels_list, used_images
     else:
         raise ValueError("No valid images found in the index directory")
 
-def evaluate_model(model, index_dir: str, transform, samples_per_class: int):
+def evaluate_model(model, index_dir: str, transform, samples_per_class: int, used_images: dict):
     """
     Evaluate the model using the remaining samples after few-shot learning.
+    
+    Args:
+        model: The CbR model
+        index_dir: Directory containing class subdirectories
+        transform: Image transforms to apply
+        samples_per_class: Number of samples used per class for training
+        used_images: Dictionary mapping class names to lists of image paths used for training
     """
     true_labels = []
     predicted_labels = []
@@ -91,11 +102,14 @@ def evaluate_model(model, index_dir: str, transform, samples_per_class: int):
         print(f"\nEvaluating class: {class_name}")
         
         # Get all image paths for this class
-        image_paths = list(class_dir.glob("*.jpg"))
+        all_image_paths = list(class_dir.glob("*.jpg"))
         
-        # Remove the samples used for training
-        if samples_per_class is not None:
-            image_paths = image_paths[samples_per_class:]
+        # Filter out images used for training
+        if class_name in used_images:
+            used_paths = set(used_images[class_name])
+            image_paths = [p for p in all_image_paths if str(p) not in used_paths]
+        else:
+            image_paths = all_image_paths
         
         # Process remaining images
         for img_path in image_paths:
@@ -131,7 +145,7 @@ def run_single_iteration(model, index_dir: str, transform, samples_per_class: in
     # Load and process index images for few-shot learning
     print(f"\nIteration with seed {seed}")
     print(f"Loading {samples_per_class} samples per class for few-shot learning...")
-    index_embeddings, index_labels = load_index_images(index_dir, transform, samples_per_class)
+    index_embeddings, index_labels, used_images = load_index_images(index_dir, transform, samples_per_class)
     
     # Add index data to the model
     print("Adding index data to model...")
@@ -140,7 +154,7 @@ def run_single_iteration(model, index_dir: str, transform, samples_per_class: in
     
     # Evaluate on remaining samples
     print("\nEvaluating model on remaining samples...")
-    true_labels, predicted_labels = evaluate_model(model, index_dir, transform, samples_per_class)
+    true_labels, predicted_labels = evaluate_model(model, index_dir, transform, samples_per_class, used_images)
     
     # Calculate metrics for this iteration
     accuracy = accuracy_score(true_labels, predicted_labels)
