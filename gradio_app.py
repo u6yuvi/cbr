@@ -1,11 +1,21 @@
 import gradio as gr
 import requests
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 import json
 import io
 from PIL import Image
 import base64
+from sklearn.metrics import accuracy_score, f1_score, recall_score, precision_score
+import logging
+import os
+import time
+import pickle
+from datetime import datetime
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Constants
 API_BASE_URL = "http://localhost:8000"
@@ -114,24 +124,40 @@ class CbRGradioApp:
         except Exception as e:
             return f"Error removing class: {str(e)}"
 
-    def predict(self, image: Path) -> str:
-        """Make a prediction on an image."""
+    def predict(self, images: List[Path]) -> tuple[List[Image.Image], str]:
+        """Make predictions on one or more images."""
         if not self.tenant_id:
-            return "Please set a tenant ID first"
-        if not image:
-            return "Please provide an image"
+            return [], "Please set a tenant ID first"
+        if not images:
+            return [], "Please provide at least one image"
             
         try:
             url = f"{API_BASE_URL}/predict"
             headers = {"X-Tenant-ID": self.tenant_id}
-            files = {"file": open(image, "rb")}
-            response = requests.post(url, headers=headers, files=files)
-            result = response.json()
-            return json.dumps(result, indent=2)
+            
+            results = []
+            pil_images = []
+            for image in images:
+                files = {"file": open(image, "rb")}
+                try:
+                    response = requests.post(url, headers=headers, files=files)
+                    result = response.json()
+                    results.append(result)
+                    # Load image for display
+                    pil_images.append(Image.open(image))
+                finally:
+                    files["file"].close()
+            
+            # Format results as markdown
+            markdown_results = "### Prediction Results\n\n"
+            for idx, result in enumerate(results):
+                markdown_results += f"**Image {idx + 1}**:\n"
+                markdown_results += f"- Predicted Class: {result.get('predicted_class', 'N/A')}\n"
+                markdown_results += f"- Confidence: {result.get('confidence', 'N/A')}\n\n"
+                    
+            return pil_images, markdown_results
         except Exception as e:
-            return f"Error making prediction: {str(e)}"
-        finally:
-            files["file"].close()
+            return [], f"Error making prediction: {str(e)}"
 
     def get_class_images(self, class_name: str) -> List[Image.Image]:
         """Get all images for a specific class."""
@@ -167,11 +193,138 @@ class CbRGradioApp:
             print(f"Error getting class images: {str(e)}")
             return []
 
+    def predict_single(self, image: Path) -> Dict:
+        """Make prediction on a single image."""
+        if not self.tenant_id:
+            return {"error": "Please set a tenant ID first"}
+        if not image:
+            return {"error": "Please provide an image"}
+            
+        try:
+            url = f"{API_BASE_URL}/predict"
+            headers = {"X-Tenant-ID": self.tenant_id}
+            files = {"file": open(image, "rb")}
+            try:
+                response = requests.post(url, headers=headers, files=files)
+                result = response.json()
+                return result
+            finally:
+                files["file"].close()
+        except Exception as e:
+            return {"error": str(e)}
+
+    def calculate_metrics(self, true_labels: List[str], predicted_labels: List[str]) -> Dict:
+        """Calculate various performance metrics."""
+        try:
+            metrics = {
+                "accuracy": accuracy_score(true_labels, predicted_labels),
+                "f1": f1_score(true_labels, predicted_labels, average='weighted'),
+                "recall": recall_score(true_labels, predicted_labels, average='weighted'),
+                "precision": precision_score(true_labels, predicted_labels, average='weighted')
+            }
+            return metrics
+        except Exception as e:
+            return {"error": f"Error calculating metrics: {str(e)}"}
+
+    def format_metrics(self, metrics: Dict) -> str:
+        """Format metrics as markdown."""
+        if "error" in metrics:
+            return f"### Error\n{metrics['error']}"
+            
+        return f"""### Performance Metrics
+- Accuracy: {metrics['accuracy']:.2%}
+- F1 Score: {metrics['f1']:.2%}
+- Recall: {metrics['recall']:.2%}
+- Precision: {metrics['precision']:.2%}
+"""
+
 def create_gradio_interface():
     app = CbRGradioApp()
     
+    # Setup session directory
+    SESSION_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session_data")
+    os.makedirs(SESSION_DIR, exist_ok=True)
+    
+    def create_new_session():
+        """Create a new unique session ID"""
+        session_id = f"user_session_{int(time.time())}_{os.urandom(4).hex()}"
+        session_file = os.path.join(SESSION_DIR, f"{session_id}.pkl")
+        
+        # Initialize session data
+        session_data = {
+            "true_labels": [],
+            "pred_labels": [],
+            "last_update": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        # Save to disk
+        with open(session_file, 'wb') as f:
+            pickle.dump(session_data, f)
+            
+        return session_id, f"Created new session: {session_id}"
+    
+    def load_session(session_id):
+        """Load an existing session by ID"""
+        if not session_id:
+            return session_id, "Please create or enter a valid session ID"
+            
+        session_file = os.path.join(SESSION_DIR, f"{session_id}.pkl")
+        if not os.path.exists(session_file):
+            return session_id, f"Session {session_id} not found"
+            
+        return session_id, f"Loaded session: {session_id}"
+    
+    def save_session_data(session_id, data):
+        """Save session data to disk"""
+        if not session_id:
+            return
+            
+        session_file = os.path.join(SESSION_DIR, f"{session_id}.pkl")
+        data["last_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(session_file, 'wb') as f:
+            pickle.dump(data, f)
+    
+    def load_session_data(session_id):
+        """Load session data from disk"""
+        if not session_id:
+            return None
+            
+        session_file = os.path.join(SESSION_DIR, f"{session_id}.pkl")
+        if not os.path.exists(session_file):
+            return None
+            
+        with open(session_file, 'rb') as f:
+            return pickle.load(f)
+    
     with gr.Blocks(title="Classification by Retrieval (CbR) Interface") as interface:
         gr.Markdown("# Classification by Retrieval (CbR) Interface")
+        
+        # Session management at the top level
+        with gr.Row():
+            with gr.Column(scale=1):
+                gr.Markdown("### User Session")
+                create_session_btn = gr.Button("Create New Session")
+                
+            with gr.Column(scale=2):
+                # Using a regular textbox instead of gr.State
+                session_id_textbox = gr.Textbox(label="Session ID", placeholder="Enter an existing session ID or create a new one")
+                load_session_btn = gr.Button("Load Session")
+                
+            with gr.Column(scale=1):
+                session_status = gr.Markdown("")
+                
+        # Wire up session management 
+        create_session_btn.click(
+            fn=create_new_session,
+            inputs=[],
+            outputs=[session_id_textbox, session_status]
+        )
+        
+        load_session_btn.click(
+            fn=load_session,
+            inputs=[session_id_textbox],
+            outputs=[session_id_textbox, session_status]
+        )
         
         with gr.Tab("Tenant Management"):
             with gr.Row():
@@ -222,10 +375,28 @@ def create_gradio_interface():
         
         with gr.Tab("Prediction"):
             with gr.Row():
-                predict_image = gr.Image(label="Upload Image", type="filepath")
+                predict_image = gr.File(label="Upload Image(s)", file_count="multiple")
                 predict_btn = gr.Button("Make Prediction")
-            predict_output = gr.Textbox(label="Prediction Result")
-            predict_btn.click(app.predict, inputs=[predict_image], outputs=predict_output)
+            
+            with gr.Row():
+                with gr.Column():
+                    result_gallery = gr.Gallery(
+                        label="Predicted Images",
+                        show_label=True,
+                        elem_id="result_gallery",
+                        columns=[2],
+                        rows=[2],
+                        height="auto",
+                        allow_preview=True
+                    )
+                with gr.Column():
+                    predict_output = gr.Markdown()
+            
+            predict_btn.click(
+                app.predict,
+                inputs=[predict_image],
+                outputs=[result_gallery, predict_output]
+            )
         
         with gr.Tab("View Class Images"):
             with gr.Row():
@@ -246,6 +417,261 @@ def create_gradio_interface():
                 app.get_class_images,
                 inputs=[view_class_name],
                 outputs=[gallery]
+            )
+        
+        with gr.Tab("Progressive Learning"):
+            gr.Markdown("### Progressive Learning")
+            gr.Markdown("Upload an image, get a prediction, and provide feedback.")
+            
+            # Display current session info
+            session_info = gr.Markdown("Please create or load a session using the controls above.")
+            
+            # Update session display button
+            def update_session_display(session_id):
+                if not session_id:
+                    return "No active session. Please create or load a session above."
+                return f"Using session: {session_id}"
+                
+            update_session_btn = gr.Button("Show Current Session")
+            update_session_btn.click(
+                fn=update_session_display,
+                inputs=[session_id_textbox],
+                outputs=[session_info]
+            )
+            
+            # Upload section - one image at a time
+            upload_file = gr.File(label="Upload Image", file_count="single")
+            predict_btn = gr.Button("Get Prediction")
+            
+            # Display section
+            image_display = gr.Image(
+                label="Image", 
+                type="pil",
+                height=200,  # Smaller height
+                width=200   # Smaller width
+            )
+            prediction_text = gr.Markdown()
+            
+            # Feedback section
+            feedback_text = gr.Textbox(label="Enter correct class label", placeholder="Type the correct class name...")
+            submit_btn = gr.Button("Submit Feedback")
+            feedback_result = gr.Markdown()
+            
+            # Simple storage for current prediction - using visible textbox for debugging
+            current_pred_class = gr.Textbox(label="Current Prediction (System Use)", visible=True)
+            
+            def get_prediction(file, session_id):
+                if not session_id:
+                    return None, "Please create or load a session first", ""
+                    
+                if not file:
+                    return None, "Please upload an image", ""
+                
+                try:
+                    # Make prediction
+                    result = app.predict_single(file)
+                    if "error" in result:
+                        return None, f"Error: {result['error']}", ""
+                    
+                    # Get prediction class
+                    pred_class = result.get('predicted_class', 'unknown')
+                    
+                    # Display image and prediction
+                    return (Image.open(file), 
+                            f"""### Prediction Result
+- Predicted Class: {pred_class}
+- Confidence: {result.get('confidence', 'N/A')}
+
+Please provide the correct class label:""",
+                            pred_class)
+                except Exception as e:
+                    logger.error(f"Prediction error: {str(e)}")
+                    return None, f"Error: {str(e)}", ""
+            
+            def submit_feedback(label, file, pred_class, session_id):
+                logger.info(f"Submit feedback: label={label}, pred_class={pred_class}, session={session_id}")
+                if not session_id:
+                    return "Please create or load a session first"
+                    
+                if not label.strip():
+                    return "Please provide a class label"
+                if not file:
+                    return "No image is currently uploaded"
+                if not pred_class:
+                    return "No prediction available"
+                
+                try:
+                    # Update the class with feedback
+                    app.update_class(label.strip(), [file], True)
+                    
+                    # Load current session data
+                    data = load_session_data(session_id)
+                    if not data:
+                        return f"Error: Could not load session data for {session_id}"
+                    
+                    # Update metrics
+                    data["true_labels"].append(label.strip())
+                    data["pred_labels"].append(pred_class)
+                    
+                    # Save updated data
+                    save_session_data(session_id, data)
+                    
+                    return f"Successfully added image to class '{label.strip()}'. Data saved to session {session_id}."
+                except Exception as e:
+                    logger.error(f"Feedback error: {str(e)}")
+                    return f"Error updating class: {str(e)}"
+            
+            # Connect the components
+            predict_btn.click(
+                fn=get_prediction,
+                inputs=[upload_file, session_id_textbox],
+                outputs=[image_display, prediction_text, current_pred_class]
+            )
+            
+            submit_btn.click(
+                fn=submit_feedback,
+                inputs=[feedback_text, upload_file, current_pred_class, session_id_textbox],
+                outputs=[feedback_result]
+            )
+        
+        with gr.Tab("Model Performance"):
+            gr.Markdown("### Model Performance Metrics")
+            gr.Markdown("View the cumulative performance metrics from your progressive learning session.")
+            
+            # Display current session info for metrics
+            performance_session_info = gr.Markdown("Please create or load a session using the controls above.")
+            
+            # Update session display button for metrics
+            update_perf_session_btn = gr.Button("Show Current Session")
+            update_perf_session_btn.click(
+                fn=update_session_display,  # Reuse the same function
+                inputs=[session_id_textbox],
+                outputs=[performance_session_info]
+            )
+            
+            def calculate_metrics(session_id):
+                """Calculate metrics from session data"""
+                if not session_id:
+                    return "Please create or load a session first to view metrics."
+                
+                try:
+                    # Load session data
+                    data = load_session_data(session_id)
+                    if not data:
+                        return f"Error: Could not load session data for {session_id}"
+                        
+                    true_labels = data["true_labels"]
+                    pred_labels = data["pred_labels"]
+                    last_update = data["last_update"]
+                    
+                    if not true_labels or not pred_labels:
+                        return f"""### No Metrics Available
+No data collected in session {session_id}.
+Start using the Progressive Learning tab to accumulate performance metrics."""
+                    
+                    # Calculate metrics
+                    metrics = app.calculate_metrics(true_labels, pred_labels)
+                    
+                    # Format class distribution
+                    from collections import Counter
+                    counts = Counter(true_labels)
+                    total = len(true_labels)
+                    
+                    class_dist = ""
+                    for class_name, count in sorted(counts.items()):
+                        percentage = (count / total) * 100
+                        class_dist += f"- {class_name}: {count} samples ({percentage:.1f}%)\n"
+                    
+                    return f"""### Cumulative Performance Metrics
+#### Session ID: {session_id}
+#### Last Updated: {last_update}
+
+- Total Samples: {total}
+- Accuracy: {metrics['accuracy']:.2%}
+- F1 Score: {metrics['f1']:.2%}
+- Recall: {metrics['recall']:.2%}
+- Precision: {metrics['precision']:.2%}
+
+#### Class Distribution
+{class_dist}"""
+                except Exception as e:
+                    logger.error(f"Metrics calculation error: {str(e)}")
+                    return f"Error calculating metrics: {str(e)}"
+            
+            # Add refresh button for metrics
+            metrics_display = gr.Markdown()
+            refresh_btn = gr.Button("Calculate Metrics")
+            
+            # Button to reset metrics
+            def reset_metrics(session_id):
+                """Reset metrics for the current session"""
+                if not session_id:
+                    return "Please create or load a session first"
+                    
+                data = load_session_data(session_id)
+                if not data:
+                    return f"Error: Could not load session data for {session_id}"
+                    
+                data["true_labels"] = []
+                data["pred_labels"] = []
+                save_session_data(session_id, data)
+                return f"Metrics for session {session_id} have been reset."
+            
+            reset_btn = gr.Button("Reset Metrics")
+            reset_result = gr.Markdown()
+            
+            # List available sessions
+            def list_sessions():
+                """List all available sessions"""
+                sessions = []
+                for file in os.listdir(SESSION_DIR):
+                    if file.endswith(".pkl"):
+                        session_id = file[:-4]  # Remove .pkl extension
+                        session_path = os.path.join(SESSION_DIR, file)
+                        try:
+                            with open(session_path, 'rb') as f:
+                                data = pickle.load(f)
+                            
+                            last_update = data.get("last_update", "Unknown")
+                            num_samples = len(data.get("true_labels", []))
+                            
+                            sessions.append({
+                                "session_id": session_id,
+                                "last_update": last_update,
+                                "samples": num_samples
+                            })
+                        except:
+                            continue
+                
+                if not sessions:
+                    return "No sessions found."
+                
+                result = "### Available Sessions\n\n"
+                for s in sorted(sessions, key=lambda x: x["last_update"], reverse=True):
+                    result += f"- **{s['session_id']}**: {s['samples']} samples, last updated {s['last_update']}\n"
+                
+                return result
+            
+            sessions_list = gr.Markdown()
+            list_sessions_btn = gr.Button("List All Sessions")
+            
+            # Connect buttons
+            refresh_btn.click(
+                fn=calculate_metrics,
+                inputs=[session_id_textbox],
+                outputs=[metrics_display]
+            )
+            
+            reset_btn.click(
+                fn=reset_metrics,
+                inputs=[session_id_textbox],
+                outputs=[reset_result]
+            )
+            
+            list_sessions_btn.click(
+                fn=list_sessions,
+                inputs=[],
+                outputs=[sessions_list]
             )
     
     return interface
