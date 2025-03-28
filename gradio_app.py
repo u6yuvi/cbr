@@ -452,7 +452,42 @@ def create_gradio_interface():
             )
             prediction_text = gr.Markdown()
             
+            # Available Classes Reference Section
+            gr.Markdown("### Available Classes for Reference")
+            available_classes_display = gr.Markdown("Click 'Show Available Classes' to see the list")
+            show_classes_btn = gr.Button("Show Available Classes")
+            
+            def format_available_classes():
+                """Get and format available classes for display"""
+                if not app.tenant_id:
+                    return "Please set a tenant ID first"
+                try:
+                    url = f"{API_BASE_URL}/model/info"
+                    headers = {"X-Tenant-ID": app.tenant_id}
+                    response = requests.get(url, headers=headers)
+                    if response.status_code != 200:
+                        return "Error fetching classes. Please check your tenant ID."
+                    
+                    model_info = response.json()
+                    classes = model_info.get("available_classes", [])
+                    
+                    if not classes:
+                        return "No classes available. Please add some classes in the Model Management tab."
+                    
+                    # Format classes as a nice markdown list
+                    class_list = "\n".join([f"- `{cls}`" for cls in sorted(classes)])
+                    return f"**Available Classes:**\n\n{class_list}"
+                except Exception as e:
+                    return f"Error: {str(e)}"
+            
+            show_classes_btn.click(
+                fn=format_available_classes,
+                inputs=[],
+                outputs=[available_classes_display]
+            )
+            
             # Feedback section
+            gr.Markdown("### Provide Feedback")
             feedback_text = gr.Textbox(label="Enter correct class label", placeholder="Type the correct class name...")
             submit_btn = gr.Button("Submit Feedback")
             feedback_result = gr.Markdown()
