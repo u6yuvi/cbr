@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # Constants
-API_BASE_URL = "http://localhost:8000"
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 class CbRGradioApp:
     def __init__(self):
@@ -712,5 +712,26 @@ Start using the Progressive Learning tab to accumulate performance metrics."""
     return interface
 
 if __name__ == "__main__":
-    interface = create_gradio_interface()
-    interface.launch(share=True) 
+    try:
+        logger.info("Starting Gradio interface...")
+        interface = create_gradio_interface()
+        logger.info("Gradio interface created successfully")
+        
+        # Get server settings from environment or use defaults
+        server_name = os.getenv("GRADIO_SERVER_NAME", "0.0.0.0")
+        server_port = int(os.getenv("GRADIO_SERVER_PORT", "7860"))
+        
+        logger.info(f"Launching Gradio server on {server_name}:{server_port}")
+        interface.launch(
+            # server_name=server_name,
+            # server_port=server_port,
+            # share=True,
+            # debug=True,
+            # show_error=True,
+            # quiet=False,
+            # allowed_paths=["."],  # Allow access to current directory
+            # root_path=""          # Don't use a root path
+        )
+    except Exception as e:
+        logger.error(f"Failed to start Gradio interface: {str(e)}")
+        raise 
