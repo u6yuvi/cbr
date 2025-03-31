@@ -9,10 +9,10 @@ WORKDIR /app
 # Step 4: Install dependencies
 RUN pip install --no-cache-dir gradio scikit-learn
 
-COPY test_gradio.py /app
+COPY gradio_app.py /app
 
 # Step 5: Expose the port the app will run on
 EXPOSE 7860
 
 # Step 6: Define the command to run the Gradio app when the container starts
-CMD ["python", "test_gradio.py"]
+CMD ["python", "gradio_app.py"]

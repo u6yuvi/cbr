@@ -632,63 +632,107 @@ Start using the Progressive Learning tab to accumulate performance metrics."""
                 except Exception as e:
                     logger.error(f"Metrics calculation error: {str(e)}")
                     return f"Error calculating metrics: {str(e)}"
+
+            def generate_metrics_report(session_id):
+                """Generate a CSV report with metrics data"""
+                if not session_id:
+                    return None
+                
+                try:
+                    # Load session data
+                    data = load_session_data(session_id)
+                    if not data:
+                        return None
+                    
+                    true_labels = data["true_labels"]
+                    pred_labels = data["pred_labels"]
+                    last_update = data["last_update"]
+                    
+                    if not true_labels or not pred_labels:
+                        return None
+                    
+                    # Calculate metrics
+                    metrics = app.calculate_metrics(true_labels, pred_labels)
+                    
+                    # Generate CSV content
+                    import csv
+                    import io
+                    
+                    output = io.StringIO()
+                    writer = csv.writer(output)
+                    
+                    # Write header
+                    writer.writerow(["Metric", "Value"])
+                    
+                    # Write metrics
+                    writer.writerow(["Session ID", session_id])
+                    writer.writerow(["Last Updated", last_update])
+                    writer.writerow(["Total Samples", len(true_labels)])
+                    writer.writerow(["Accuracy", f"{metrics['accuracy']:.2%}"])
+                    writer.writerow(["F1 Score", f"{metrics['f1']:.2%}"])
+                    writer.writerow(["Recall", f"{metrics['recall']:.2%}"])
+                    writer.writerow(["Precision", f"{metrics['precision']:.2%}"])
+                    
+                    # Write class distribution
+                    writer.writerow([])  # Empty row for separation
+                    writer.writerow(["Class Distribution"])
+                    writer.writerow(["Class", "Count", "Percentage"])
+                    
+                    from collections import Counter
+                    counts = Counter(true_labels)
+                    total = len(true_labels)
+                    
+                    for class_name, count in sorted(counts.items()):
+                        percentage = (count / total) * 100
+                        writer.writerow([class_name, count, f"{percentage:.1f}%"])
+                    
+                    # Write prediction details
+                    writer.writerow([])  # Empty row for separation
+                    writer.writerow(["Prediction Details"])
+                    writer.writerow(["Sample", "True Label", "Predicted Label"])
+                    
+                    for i, (true, pred) in enumerate(zip(true_labels, pred_labels), 1):
+                        writer.writerow([i, true, pred])
+                    
+                    # Get the CSV content
+                    csv_content = output.getvalue()
+                    output.close()
+                    
+                    # Create a temporary file with a meaningful name
+                    import tempfile
+                    import os
+                    temp_dir = tempfile.gettempdir()
+                    filename = f"metrics_report_{session_id}_{int(time.time())}.csv"
+                    temp_path = os.path.join(temp_dir, filename)
+                    
+                    with open(temp_path, 'w') as f:
+                        f.write(csv_content)
+                    
+                    return temp_path
+                    
+                except Exception as e:
+                    logger.error(f"Report generation error: {str(e)}")
+                    return None
             
             # Add refresh button for metrics
             metrics_display = gr.Markdown()
             refresh_btn = gr.Button("Calculate Metrics")
             
-            # Button to reset metrics
-            def reset_metrics(session_id):
-                """Reset metrics for the current session"""
+            # Add download button and status message
+            download_btn = gr.Button("Download Metrics Report")
+            download_file = gr.File(label="Download Report")
+            download_status = gr.Markdown()
+            
+            def handle_download(session_id):
+                """Handle the download process and provide status feedback"""
                 if not session_id:
-                    return "Please create or load a session first"
-                    
-                data = load_session_data(session_id)
-                if not data:
-                    return f"Error: Could not load session data for {session_id}"
-                    
-                data["true_labels"] = []
-                data["pred_labels"] = []
-                save_session_data(session_id, data)
-                return f"Metrics for session {session_id} have been reset."
-            
-            reset_btn = gr.Button("Reset Metrics")
-            reset_result = gr.Markdown()
-            
-            # List available sessions
-            def list_sessions():
-                """List all available sessions"""
-                sessions = []
-                for file in os.listdir(SESSION_DIR):
-                    if file.endswith(".pkl"):
-                        session_id = file[:-4]  # Remove .pkl extension
-                        session_path = os.path.join(SESSION_DIR, file)
-                        try:
-                            with open(session_path, 'rb') as f:
-                                data = pickle.load(f)
-                            
-                            last_update = data.get("last_update", "Unknown")
-                            num_samples = len(data.get("true_labels", []))
-                            
-                            sessions.append({
-                                "session_id": session_id,
-                                "last_update": last_update,
-                                "samples": num_samples
-                            })
-                        except:
-                            continue
+                    return None, "Please create or load a session first"
                 
-                if not sessions:
-                    return "No sessions found."
+                file_path = generate_metrics_report(session_id)
+                if file_path is None:
+                    return None, "No metrics data available or error generating report"
                 
-                result = "### Available Sessions\n\n"
-                for s in sorted(sessions, key=lambda x: x["last_update"], reverse=True):
-                    result += f"- **{s['session_id']}**: {s['samples']} samples, last updated {s['last_update']}\n"
-                
-                return result
-            
-            sessions_list = gr.Markdown()
-            list_sessions_btn = gr.Button("List All Sessions")
+                return file_path, "Report generated successfully. Click the file to download."
             
             # Connect buttons
             refresh_btn.click(
@@ -697,16 +741,10 @@ Start using the Progressive Learning tab to accumulate performance metrics."""
                 outputs=[metrics_display]
             )
             
-            reset_btn.click(
-                fn=reset_metrics,
+            download_btn.click(
+                fn=handle_download,
                 inputs=[session_id_textbox],
-                outputs=[reset_result]
-            )
-            
-            list_sessions_btn.click(
-                fn=list_sessions,
-                inputs=[],
-                outputs=[sessions_list]
+                outputs=[download_file, download_status]
             )
     
     return interface
