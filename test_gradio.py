@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # Constants
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+API_BASE_URL = os.getenv("API_BASE_URL", "http://0.0.0.0:8000")
 
 class CbRGradioApp:
     def __init__(self):
@@ -722,27 +722,28 @@ if __name__ == "__main__":
         server_port = int(os.getenv("GRADIO_SERVER_PORT", "7860"))
         
         logger.info(f"Launching Gradio server on {server_name}:{server_port}")
-        interface.launch(
-            server_name=server_name,
-            server_port=server_port,
-            share=False,  # Enable sharing to handle Docker networking
-            # debug=True,
-            # show_error=True,
-            # quiet=False,
-            # allowed_paths=["."],
-            # root_path="",
-            # inbrowser=False,
-            # favicon_path=None,
-            # ssl_verify=False,
-            # ssl_certfile=None,
-            # ssl_keyfile=None,
-            # ssl_keyfile_password=None,
-            # show_api=False,
-            # max_threads=40,
-            # auth=None,
-            # auth_message=None,
-            # prevent_thread_lock=False
-        )
+        # interface.launch(
+        #     server_name=server_name,
+        #     server_port=server_port,
+        #     share=False,  # Enable sharing to handle Docker networking
+        #     # debug=True,
+        #     # show_error=True,
+        #     # quiet=False,
+        #     # allowed_paths=["."],
+        #     # root_path="",
+        #     # inbrowser=False,
+        #     # favicon_path=None,
+        #     # ssl_verify=False,
+        #     # ssl_certfile=None,
+        #     # ssl_keyfile=None,
+        #     # ssl_keyfile_password=None,
+        #     # show_api=False,
+        #     # max_threads=40,
+        #     # auth=None,
+        #     # auth_message=None,
+        #     # prevent_thread_lock=False
+        # )
+        interface.launch(server_name=server_name, server_port=server_port, share=False)
     except Exception as e:
         logger.error(f"Failed to start Gradio interface: {str(e)}")
         raise 

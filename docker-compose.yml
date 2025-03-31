@@ -2,17 +2,70 @@ version: '3.8'
 
 services:
   api:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "8000:8000"
     volumes:
-      - ./:/app
       - ./data:/app/data
     environment:
-      - PYTHONPATH=/app
-    restart: unless-stopped
+      - PYTHONUNBUFFERED=1
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      test: ["CMD", "curl", "-f", "http://api:8000/health"]
       interval: 30s
       timeout: 10s
-      retries: 3 
+      retries: 3
+    networks:
+      - app-network
+
+  ui:
+    build:
+      context: .
+      dockerfile: test.Dockerfile
+    ports:
+      - "7860:7860"
+    volumes:
+      - ./session_data:/app/session_data
+    environment:
+      - API_BASE_URL=http://api:8000
+      - GRADIO_SERVER_NAME=0.0.0.0
+      - GRADIO_SERVER_PORT=7860
+  #     - GRADIO_ANALYTICS_ENABLED=false
+  #     - GRADIO_ALLOW_FLAGGING=never
+  #     - GRADIO_SERVER_SSL=false
+  #     - GRADIO_SERVER_CERT_FILE=
+  #     - GRADIO_SERVER_KEY_FILE=
+  #     - GRADIO_SERVER_SSL_VERIFY=false
+  #     - GRADIO_SERVER_SSL_CERT_FILE=
+  #     - GRADIO_SERVER_SSL_KEY_FILE=
+  #     - GRADIO_SERVER_SSL_KEY_FILE_PASSWORD=
+  #     - GRADIO_SERVER_SHOW_API=false
+  #     - GRADIO_SERVER_MAX_THREADS=40
+  #     - GRADIO_SERVER_AUTH=
+  #     - GRADIO_SERVER_AUTH_MESSAGE=
+  #     - GRADIO_SERVER_PREVENT_THREAD_LOCK=false
+  #     - GRADIO_SERVER_INBROWSER=false
+  #     - GRADIO_SERVER_FAVICON_PATH=
+  #     - GRADIO_SERVER_ROOT_PATH=
+  #     - GRADIO_SERVER_ALLOWED_PATHS=["."]
+  #     - GRADIO_SERVER_SHARE=true
+  #     - GRADIO_SERVER_LOCALHOST=false
+    # depends_on:
+    #   api:
+    #     condition: service_healthy
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://ui:7860"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 10s
+    networks:
+      - app-network
+  #   restart: unless-stopped
+  #   extra_hosts:
+  #     - "host.docker.internal:host-gateway"
+
+networks:
+  app-network:
+    driver: bridge 

@@ -1,0 +1,55 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first to leverage Docker cache
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest of the application
+COPY . .
+
+# Create directory for session data with proper permissions
+RUN mkdir -p session_data && \
+    chmod -R 777 session_data && \
+    chown -R nobody:nogroup session_data
+
+# Expose the port Gradio will run on
+EXPOSE 7860
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV GRADIO_SERVER_NAME=0.0.0.0
+ENV GRADIO_SERVER_PORT=7860
+ENV GRADIO_ANALYTICS_ENABLED=false
+ENV GRADIO_ALLOW_FLAGGING=never
+ENV GRADIO_SERVER_SSL=false
+ENV GRADIO_SERVER_CERT_FILE=
+ENV GRADIO_SERVER_KEY_FILE=
+ENV GRADIO_SERVER_SSL_VERIFY=false
+ENV GRADIO_SERVER_SSL_CERT_FILE=
+ENV GRADIO_SERVER_SSL_KEY_FILE=
+ENV GRADIO_SERVER_SSL_KEY_FILE_PASSWORD=
+ENV GRADIO_SERVER_SHOW_API=false
+ENV GRADIO_SERVER_MAX_THREADS=40
+ENV GRADIO_SERVER_AUTH=
+ENV GRADIO_SERVER_AUTH_MESSAGE=
+ENV GRADIO_SERVER_PREVENT_THREAD_LOCK=false
+ENV GRADIO_SERVER_INBROWSER=false
+ENV GRADIO_SERVER_FAVICON_PATH=
+ENV GRADIO_SERVER_ROOT_PATH=
+ENV GRADIO_SERVER_ALLOWED_PATHS=["."]
+ENV GRADIO_SERVER_SHARE=true
+ENV GRADIO_SERVER_LOCALHOST=false
+
+# Command to run the application
+CMD ["python3", "-u", "gradio_app.py"] 
