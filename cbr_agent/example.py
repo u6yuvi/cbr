@@ -5,6 +5,7 @@ import requests
 import shutil
 from PIL import Image
 import io
+import json
 
 # Add the project root to Python path
 project_root = Path(__file__).parent.parent
@@ -38,34 +39,37 @@ def main():
         # Initialize agent
         agent = CBRAgent()
         
-        # Create a directory for downloaded images
+        # Create directories
         image_dir = Path("downloaded_images")
         image_dir.mkdir(exist_ok=True)
         
         # Example workflow
         print("\n1. Creating a new tenant...")
         result = agent.run("Create a new tenant called 'image-classifier'")
-        if 'result' in result:
-            print(f"Created tenant: {result['result']['tenant_id']}")
+        if 'result' in result and 'tenant_id' in result['result']:
+            tenant_id = result['result']['tenant_id']
+            print(f"Created tenant: {tenant_id}")
+            
+            # Save tenant ID to file
+            with open(image_dir / "tenant_id.txt", "w") as f:
+                f.write(tenant_id)
         else:
             print(result['response'])
+            return
+            
+        # Ensure we're using the correct tenant
+        agent.run({"tool": "switch_tenant", "args": {"tenant_id": tenant_id}})
         
         print("\n2. Training the model with cat images...")
-        cat_urls = [
-            "https://static.vecteezy.com/system/resources/thumbnails/018/871/732/small_2x/cute-and-happy-dog-png.png",
-            "https://static.vecteezy.com/system/resources/thumbnails/018/871/732/small_2x/cute-and-happy-dog-png.png"
-        ]
-        cat_paths = []
-        for i, url in enumerate(cat_urls):
-            save_path = image_dir / f"cat{i+1}"  # Extension will be added by download_image
-            cat_paths.append(download_image(url, save_path))
+        # Use local test images
+        cat_paths = [str(Path("test_images/cat2.jpg"))]
         
         # Train with cat images
         result = agent.run({
             "tool": "train_model",
             "args": {
                 "class_name": "cat",
-                "images": [str(p) for p in cat_paths]
+                "images": cat_paths
             }
         })
         if 'result' in result:
@@ -76,21 +80,15 @@ def main():
             print(f"Error: {result.get('error', result['response'])}")
         
         print("\n3. Training the model with dog images...")
-        dog_urls = [
-            "https://static.vecteezy.com/system/resources/thumbnails/018/871/732/small_2x/cute-and-happy-dog-png.png",
-            "https://static.vecteezy.com/system/resources/thumbnails/018/871/732/small_2x/cute-and-happy-dog-png.png"
-        ]
-        dog_paths = []
-        for i, url in enumerate(dog_urls):
-            save_path = image_dir / f"dog{i+1}"  # Extension will be added by download_image
-            dog_paths.append(download_image(url, save_path))
+        # Use local test images
+        dog_paths = [str(Path("test_images/dog.jpg"))]
         
         # Train with dog images
         result = agent.run({
             "tool": "train_model",
             "args": {
                 "class_name": "dog",
-                "images": [str(p) for p in dog_paths]
+                "images": dog_paths
             }
         })
         if 'result' in result:
@@ -101,15 +99,14 @@ def main():
             print(f"Error: {result.get('error', result['response'])}")
         
         print("\n4. Making predictions...")
-        test_url = "https://static.vecteezy.com/system/resources/thumbnails/018/871/732/small_2x/cute-and-happy-dog-png.png"
-        test_path = image_dir / "test_image"  # Extension will be added by download_image
-        test_path = download_image(test_url, test_path)
+        # Use a local test image
+        test_path = str(Path("test_images/dog.jpg"))
         
         # Make prediction
         result = agent.run({
             "tool": "predict_image",
             "args": {
-                "image": str(test_path)
+                "image": test_path
             }
         })
         if 'result' in result:

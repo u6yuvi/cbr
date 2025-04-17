@@ -103,8 +103,9 @@ class ModelTools:
                     img.save(buffer, format='JPEG', quality=95, optimize=True)
                     buffer.seek(0)
                     
-                    # Add to files list
-                    files.append(("files", (f"{os.path.basename(str(img_path))}", buffer, 'image/jpeg')))
+                    # Add to files list with proper filename and content type
+                    filename = os.path.basename(str(img_path))
+                    files.append(("files", (filename, buffer, 'image/jpeg')))
             
             logger.info("Sending add_class request to API")
             result = self.api_client.post(f"/class/add/{class_name}", files=files)
@@ -115,7 +116,7 @@ class ModelTools:
             logger.error(f"Failed to add class '{class_name}': {str(e)}")
             raise
     
-    def update_class(self, class_name: str, images: List[Union[str, Path]]) -> Dict[str, Any]:
+    def update_class(self, class_name: str, images: List[Union[str, Path]], append: bool = False) -> Dict[str, Any]:
         """Update an existing class with new example images"""
         logger.info(f"Updating class '{class_name}' with {len(images)} images")
         try:
@@ -124,11 +125,38 @@ class ModelTools:
             for img in images:
                 # Convert string path to Path object if needed
                 img_path = Path(img) if isinstance(img, str) else img
-                with open(img_path, "rb") as img_file:
-                    files.append(("files", (os.path.basename(str(img_path)), img_file, 'image/jpeg')))
+                
+                # Preprocess image
+                with Image.open(img_path) as img:
+                    # Convert to RGB if needed
+                    if img.mode in ('RGBA', 'LA', 'P'):
+                        # Create white background for transparency
+                        if 'transparency' in img.info or img.mode in ('RGBA', 'LA'):
+                            background = Image.new('RGB', img.size, (255, 255, 255))
+                            if img.mode == 'P':
+                                img = img.convert('RGBA')
+                            # Alpha composite onto white background
+                            background.paste(img, mask=img.split()[-1])
+                            img = background
+                        else:
+                            img = img.convert('RGB')
+                    elif img.mode != 'RGB':
+                        img = img.convert('RGB')
+                    
+                    # Apply size transformations
+                    img = self.transform(img)
+                    
+                    # Save to bytes buffer
+                    buffer = io.BytesIO()
+                    img.save(buffer, format='JPEG', quality=95, optimize=True)
+                    buffer.seek(0)
+                    
+                    # Add to files list with proper filename and content type
+                    filename = os.path.basename(str(img_path))
+                    files.append(("files", (filename, buffer, 'image/jpeg')))
             
             # Add append parameter to form data
-            data = {'append': 'false'}
+            data = {'append': str(append).lower()}
             
             logger.info("Sending update_class request to API")
             result = self.api_client.post(f"/class/update/{class_name}", data=data, files=files)

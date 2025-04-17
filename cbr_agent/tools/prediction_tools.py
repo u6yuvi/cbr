@@ -53,8 +53,9 @@ class PredictionTools:
                 img.save(buffer, format='JPEG', quality=95, optimize=True)
                 buffer.seek(0)
                 
-                # Send processed image
-                files = {'file': (f"{os.path.basename(str(img_path))}", buffer, 'image/jpeg')}
+                # Send processed image with proper filename and content type
+                filename = os.path.basename(str(img_path))
+                files = {'file': (filename, buffer, 'image/jpeg')}
                 
                 logger.info("Sending prediction request to API")
                 result = self.api_client.post("/predict", files=files)

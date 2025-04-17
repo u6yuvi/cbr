@@ -17,6 +17,11 @@ class APIClient:
         url = f"{self.base_url}{endpoint}"
         headers = self._get_headers()
         
+        # For file uploads, don't include Content-Type in headers
+        if "files" in kwargs:
+            # Remove Content-Type from headers if present
+            headers.pop("Content-Type", None)
+        
         if "headers" in kwargs:
             headers.update(kwargs.pop("headers"))
             
@@ -28,7 +33,12 @@ class APIClient:
         return self._make_request("GET", endpoint, params=params)
     
     def post(self, endpoint: str, data: Dict = None, files: Dict = None) -> Dict[str, Any]:
-        return self._make_request("POST", endpoint, json=data, files=files)
+        if files:
+            # For file uploads, send data as form-data
+            return self._make_request("POST", endpoint, data=data, files=files)
+        else:
+            # For regular requests, send data as JSON
+            return self._make_request("POST", endpoint, json=data)
     
     def put(self, endpoint: str, data: Dict = None) -> Dict[str, Any]:
         return self._make_request("PUT", endpoint, json=data)

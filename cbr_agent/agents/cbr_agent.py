@@ -93,8 +93,7 @@ class CBRAgent(BaseAgent):
         """Create a new tenant and store the tenant ID"""
         result = self.tenant_tools.create_tenant(name)
         if "tenant_id" in result:
-            self.current_tenant_id = result["tenant_id"]
-            self.api_client.tenant_id = result["tenant_id"]
+            self._update_tenant_id(result["tenant_id"])
             # Save tenant to storage
             self.storage.save_tenant(result["tenant_id"], name)
             result["message"] = f"Created and switched to tenant with ID: {result['tenant_id']}"
@@ -127,8 +126,7 @@ class CBRAgent(BaseAgent):
             raise ValueError(f"Tenant {tenant_id} not found in storage")
         
         # Update current tenant
-        self.current_tenant_id = tenant_id
-        self.api_client.tenant_id = tenant_id
+        self._update_tenant_id(tenant_id)
         
         # Update last used timestamp
         self.storage.update_last_used(tenant_id)
@@ -298,4 +296,13 @@ class CBRAgent(BaseAgent):
         try:
             self.image_downloader.cleanup()
         except:
-            pass 
+            pass
+
+    def _update_tenant_id(self, tenant_id: str):
+        """Update tenant ID across all components"""
+        self.current_tenant_id = tenant_id
+        self.api_client.tenant_id = tenant_id
+        self.tenant_tools.api_client.tenant_id = tenant_id
+        self.model_tools.api_client.tenant_id = tenant_id
+        self.prediction_tools.api_client.tenant_id = tenant_id
+        self.metrics_tools.api_client.tenant_id = tenant_id 
