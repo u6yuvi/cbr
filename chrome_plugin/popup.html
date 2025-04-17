@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Image Classification</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <style>
+    body {
+      width: 500px;
+      padding: 20px;
+    }
+    .hidden {
+      display: none;
+    }
+    .loader {
+      border: 3px solid #f3f3f3;
+      border-radius: 50%;
+      border-top: 3px solid #3498db;
+      width: 20px;
+      height: 20px;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+      margin-left: 10px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .image-tile {
+      width: 80px;
+      height: 80px;
+      object-fit: cover;
+      border-radius: 4px;
+      margin: 5px;
+      cursor: pointer;
+      border: 2px solid transparent;
+    }
+    .image-tile.selected {
+      border-color: #3498db;
+    }
+    .example-image {
+      width: 100px;
+      height: 100px;
+      object-fit: cover;
+      border-radius: 4px;
+      margin: 5px;
+      cursor: pointer;
+      border: 2px solid transparent;
+    }
+    .example-image.selected {
+      border-color: #3498db;
+    }
+  </style>
+</head>
+<body class="bg-gray-100">
+  <!-- Tenant Section -->
+  <div id="tenantSection" class="mb-6">
+    <h2 class="text-xl font-bold mb-4">Tenant Management</h2>
+    <div id="createTenantDiv">
+      <button id="createTenant" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+        Create New Tenant
+      </button>
+      <span id="tenantLoader" class="loader hidden"></span>
+    </div>
+    <div id="tenantInfo" class="mt-2 text-sm text-gray-600 hidden">
+      Current Tenant ID: <span id="currentTenantId"></span>
+    </div>
+  </div>
+
+  <!-- Class Management Section -->
+  <div id="classSection" class="mb-6 hidden">
+    <h2 class="text-xl font-bold mb-4">Add Classes</h2>
+    
+    <!-- Dog Class Images -->
+    <div class="mb-4 p-4 bg-white rounded shadow">
+      <h3 class="font-bold mb-2">Dog Images</h3>
+      <div class="flex flex-wrap" id="dogImages">
+        <img src="images/dog1.jpg" class="image-tile" data-class="dog" alt="Dog 1">
+        <img src="images/dog2.jpg" class="image-tile" data-class="dog" alt="Dog 2">
+        <img src="images/dog3.jpg" class="image-tile" data-class="dog" alt="Dog 3">
+        <img src="images/dog4.jpg" class="image-tile" data-class="dog" alt="Dog 4">
+      </div>
+      <button id="addDogClass" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded mt-2">
+        Add Dog Class
+      </button>
+      <span id="dogLoader" class="loader hidden"></span>
+    </div>
+    
+    <!-- Cat Class Images -->
+    <div class="mb-4 p-4 bg-white rounded shadow">
+      <h3 class="font-bold mb-2">Cat Images</h3>
+      <div class="flex flex-wrap" id="catImages">
+        <img src="images/cat1.jpg" class="image-tile" data-class="cat" alt="Cat 1">
+        <img src="images/cat2.jpg" class="image-tile" data-class="cat" alt="Cat 2">
+        <img src="images/cat3.jpg" class="image-tile" data-class="cat" alt="Cat 3">
+        <img src="images/cat4.jpg" class="image-tile" data-class="cat" alt="Cat 4">
+      </div>
+      <button id="addCatClass" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded mt-2">
+        Add Cat Class
+      </button>
+      <span id="catLoader" class="loader hidden"></span>
+    </div>
+    
+    <!-- Added Classes List -->
+    <div class="mt-4">
+      <h3 class="font-bold mb-2">Added Classes</h3>
+      <div id="classList" class="space-y-2">
+        <!-- Classes will be added here dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Prediction Section -->
+  <div id="predictionSection" class="mb-6 hidden">
+    <h2 class="text-xl font-bold mb-4">Make Prediction</h2>
+    <div class="mb-4 p-4 bg-white rounded shadow">
+      <h3 class="font-bold mb-2">Example Images</h3>
+      <p class="text-sm text-gray-600 mb-2">Select an image to make a prediction:</p>
+      <div class="flex flex-wrap" id="exampleImages">
+        <img src="images/example_dog.jpg" class="example-image" data-name="Example Dog" alt="Example Dog">
+        <img src="images/example_cat.jpg" class="example-image" data-name="Example Cat" alt="Example Cat">
+      </div>
+      <div class="mt-2" id="selectedExampleName"></div>
+      <button id="makePrediction" class="bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded mt-2">
+        Make Prediction
+      </button>
+      <span id="predictionLoader" class="loader hidden"></span>
+    </div>
+    <div id="predictionResult" class="mt-4 p-4 bg-white rounded shadow hidden">
+      <h3 class="font-bold">Prediction Results:</h3>
+      <div id="predictedClass" class="text-lg text-blue-600"></div>
+      <div id="confidence" class="text-sm text-gray-600"></div>
+      <div id="probabilities" class="mt-2">
+        <!-- Class probabilities will be added here -->
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html> 
